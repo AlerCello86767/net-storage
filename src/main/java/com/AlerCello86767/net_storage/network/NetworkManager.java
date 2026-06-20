@@ -68,6 +68,9 @@ public class NetworkManager {
         
         // 断开所有外部存储总线连接
         plugin.getControllerManager().removeExternalStorageBusesForNetwork(uuid);
+        
+        // 断开所有输入总线连接
+        plugin.getControllerManager().removeInputBusesForNetwork(uuid);
 
         // 从内存中移除网络
         networks.remove(uuid);

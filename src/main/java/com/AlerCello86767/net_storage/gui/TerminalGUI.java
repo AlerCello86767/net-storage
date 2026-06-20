@@ -8,6 +8,7 @@ import com.AlerCello86767.net_storage.disk.DiskItem;
 import com.AlerCello86767.net_storage.disk.DiskManager;
 import com.AlerCello86767.net_storage.network.StorageNetwork;
 import com.AlerCello86767.net_storage.utils.ItemBuilder;
+import org.bukkit.Bukkit;
 import org.bukkit.ChatColor;
 import org.bukkit.Location;
 import org.bukkit.Material;
@@ -16,6 +17,7 @@ import org.bukkit.block.BlockState;
 import org.bukkit.entity.Player;
 import org.bukkit.event.inventory.InventoryClickEvent;
 import org.bukkit.inventory.ItemStack;
+import org.bukkit.scheduler.BukkitTask;
 
 import java.util.ArrayList;
 import java.util.HashMap;
@@ -62,6 +64,9 @@ public class TerminalGUI extends BaseGUI {
     
     // 更新锁，防止刷新时点击导致问题
     private final AtomicBoolean isUpdating = new AtomicBoolean(false);
+    
+    // 定时刷新任务
+    private BukkitTask refreshTask;
 
     public TerminalGUI(Player player, Net_storage plugin, TerminalData terminalData, Location blockLocation) {
         // super() 必须是第一条语句，在参数中计算标题
@@ -80,6 +85,35 @@ public class TerminalGUI extends BaseGUI {
         totalPages = Math.max(1, (int) Math.ceil(displayItems.size() / (double) ITEMS_PER_PAGE));
         
         initialize();
+        
+        // 启动定时刷新任务（每1.5秒 = 30 ticks）
+        startRefreshTask();
+    }
+    
+    /**
+     * 启动定时刷新任务
+     */
+    private void startRefreshTask() {
+        refreshTask = Bukkit.getScheduler().runTaskTimer(plugin, () -> {
+            // 只在玩家打开界面时刷新
+            if (player.isOnline() && player.getOpenInventory().getTitle().equals(getTitle())) {
+                refreshNetworkData();
+                update();
+            } else {
+                // 玩家已关闭界面，停止刷新任务
+                stopRefreshTask();
+            }
+        }, 30L, 30L); // 30 ticks = 1.5秒
+    }
+    
+    /**
+     * 停止定时刷新任务
+     */
+    private void stopRefreshTask() {
+        if (refreshTask != null) {
+            refreshTask.cancel();
+            refreshTask = null;
+        }
     }
     
     /**
@@ -968,5 +1002,14 @@ public class TerminalGUI extends BaseGUI {
         } finally {
             isUpdating.set(false);
         }
+    }
+    
+    /**
+     * 关闭界面
+     */
+    @Override
+    public void close() {
+        stopRefreshTask();
+        super.close();
     }
 }

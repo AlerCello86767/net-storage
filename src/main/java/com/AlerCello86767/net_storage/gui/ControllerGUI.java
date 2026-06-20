@@ -4,6 +4,7 @@ import com.AlerCello86767.net_storage.Net_storage;
 import com.AlerCello86767.net_storage.controller.ControllerManager;
 import com.AlerCello86767.net_storage.controller.DiskManipulatorData;
 import com.AlerCello86767.net_storage.controller.ExternalStorageBusData;
+import com.AlerCello86767.net_storage.controller.InputBusData;
 import com.AlerCello86767.net_storage.controller.TerminalData;
 import com.AlerCello86767.net_storage.network.StorageNetwork;
 import com.AlerCello86767.net_storage.utils.ItemBuilder;
@@ -37,7 +38,8 @@ public class ControllerGUI extends BaseGUI {
         DEBUG_DEVICE,
         DISK_MANIPULATOR,
         TERMINAL,
-        EXTERNAL_STORAGE_BUS
+        EXTERNAL_STORAGE_BUS,
+        INPUT_BUS
     }
     
     /**
@@ -182,6 +184,12 @@ public class ControllerGUI extends BaseGUI {
         for (ExternalStorageBusData bus : externalBuses) {
             devices.add(new DeviceInfo(bus.location, DeviceType.EXTERNAL_STORAGE_BUS, bus));
         }
+        
+        // 5. 输入总线
+        List<InputBusData> inputBuses = plugin.getControllerManager().getInputBusesByNetwork(network.getNetworkId());
+        for (InputBusData bus : inputBuses) {
+            devices.add(new DeviceInfo(bus.location, DeviceType.INPUT_BUS, bus));
+        }
 
         // 计算总页数
         totalPages = Math.max(1, (int) Math.ceil(devices.size() / (double) DEVICES_PER_PAGE));
@@ -268,6 +276,14 @@ public class ControllerGUI extends BaseGUI {
                 // 显示容器类型
                 ExternalStorageBusData bus = (ExternalStorageBusData) device.data;
                 lore.add(ChatColor.GRAY + "绑定容器: " + ChatColor.WHITE + bus.getContainerDisplayName());
+                break;
+            case INPUT_BUS:
+                material = Material.PLAYER_HEAD;
+                name = ChatColor.LIGHT_PURPLE + "输入总线";
+                // 显示容器类型
+                InputBusData inputBus = (InputBusData) device.data;
+                lore.add(ChatColor.GRAY + "绑定容器: " + ChatColor.WHITE + inputBus.getContainerDisplayName());
+                lore.add(ChatColor.GRAY + "功能: " + ChatColor.GREEN + "自动提取物品");
                 break;
             default:
                 material = Material.STONE;

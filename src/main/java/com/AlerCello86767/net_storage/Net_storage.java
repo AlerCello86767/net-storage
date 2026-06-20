@@ -15,6 +15,7 @@ import com.AlerCello86767.net_storage.gui.GUIManager;
 import com.AlerCello86767.net_storage.gui.listener.GUIListener;
 import com.AlerCello86767.net_storage.listeners.PlayerInteractListener;
 import com.AlerCello86767.net_storage.network.NetworkManager;
+import com.AlerCello86767.net_storage.task.InputBusTask;
 import com.AlerCello86767.net_storage.utils.ConfigManager;
 import com.AlerCello86767.net_storage.utils.DatabaseManager;
 import org.bukkit.plugin.java.JavaPlugin;
@@ -30,6 +31,7 @@ public final class Net_storage extends JavaPlugin {
     private ControllerManager controllerManager;
     private DiskManager diskManager;
     private BukkitTask autoSaveTask;
+    private BukkitTask inputBusTask;
 
     @Override
     public void onEnable() {
@@ -50,6 +52,7 @@ public final class Net_storage extends JavaPlugin {
         controllerManager.loadAllDiskManipulators();
         controllerManager.loadAllTerminals();
         controllerManager.loadAllExternalStorageBuses();
+        controllerManager.loadAllInputBuses();
 
         diskManager = new DiskManager(this);
 
@@ -70,6 +73,7 @@ public final class Net_storage extends JavaPlugin {
 
         startAutoSaveTask();
         controllerManager.startActionBarTask();
+        startInputBusTask();
 
         getLogger().info("NetStorage 插件已启用！");
         getLogger().info("使用 /network help 查看帮助");
@@ -81,6 +85,10 @@ public final class Net_storage extends JavaPlugin {
     public void onDisable() {
         if (autoSaveTask != null) {
             autoSaveTask.cancel();
+        }
+
+        if (inputBusTask != null) {
+            inputBusTask.cancel();
         }
 
         if (guiManager != null) {
@@ -102,6 +110,7 @@ public final class Net_storage extends JavaPlugin {
             controllerManager.saveAllDiskManipulators();
             controllerManager.saveAllTerminals();
             controllerManager.saveAllExternalStorageBuses();
+            controllerManager.saveAllInputBuses();
         }
 
         if (databaseManager != null) {
@@ -123,6 +132,12 @@ public final class Net_storage extends JavaPlugin {
         }, delay, period);
 
         getLogger().info("自动保存任务已启动，间隔: " + saveInterval + " 秒");
+    }
+
+    private void startInputBusTask() {
+        // 每9 ticks执行一次输入总线物品提取（约每秒4.5次）
+        inputBusTask = getServer().getScheduler().runTaskTimer(this, new InputBusTask(this), 1L, 9L);
+        getLogger().info("输入总线定时任务已启动");
     }
 
     public static Net_storage getInstance() {

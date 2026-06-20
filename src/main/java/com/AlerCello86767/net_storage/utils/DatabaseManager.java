@@ -124,6 +124,18 @@ public class DatabaseManager {
                 created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
             )
         """;
+        
+        String createInputBuses = """
+            CREATE TABLE IF NOT EXISTS input_buses (
+                id INTEGER PRIMARY KEY AUTO_INCREMENT,
+                bus_uuid VARCHAR(36) UNIQUE NOT NULL,
+                location VARCHAR(128) NOT NULL UNIQUE,
+                network_id VARCHAR(36),
+                container_location VARCHAR(128) NOT NULL,
+                container_type VARCHAR(64),
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            )
+        """;
 
         try (Statement stmt = connection.createStatement()) {
             stmt.execute(createNetworks);
@@ -133,6 +145,7 @@ public class DatabaseManager {
             stmt.execute(createDiskManipulators);
             stmt.execute(createTerminals);
             stmt.execute(createExternalStorageBuses);
+            stmt.execute(createInputBuses);
         }
     }
     
@@ -792,6 +805,89 @@ public class DatabaseManager {
             }
         } catch (SQLException e) {
             plugin.getLogger().severe("加载外部存储总线列表失败: " + e.getMessage());
+            e.printStackTrace();
+        }
+        
+        return dataList;
+    }
+    
+    // ========== 输入总线操作 ==========
+    
+    public void saveInputBusToDB(com.AlerCello86767.net_storage.controller.InputBusData data) {
+        if (connection == null || data == null) return;
+        
+        try {
+            String sql = """
+                MERGE INTO input_buses (bus_uuid, location, network_id, container_location, container_type)
+                KEY (location)
+                VALUES (?, ?, ?, ?, ?)
+            """;
+            
+            try (PreparedStatement stmt = connection.prepareStatement(sql)) {
+                stmt.setString(1, data.busUuid.toString());
+                stmt.setString(2, data.location);
+                if (data.networkId != null) {
+                    stmt.setString(3, data.networkId.toString());
+                } else {
+                    stmt.setNull(3, Types.VARCHAR);
+                }
+                stmt.setString(4, data.containerLocation);
+                stmt.setString(5, data.containerType);
+                stmt.executeUpdate();
+            }
+        } catch (SQLException e) {
+            plugin.getLogger().severe("保存输入总线失败: " + e.getMessage());
+            e.printStackTrace();
+        }
+    }
+    
+    public void deleteInputBusFromDB(String location) {
+        if (connection == null) return;
+        
+        try {
+            String sql = "DELETE FROM input_buses WHERE location = ?";
+            try (PreparedStatement stmt = connection.prepareStatement(sql)) {
+                stmt.setString(1, location);
+                stmt.executeUpdate();
+            }
+        } catch (SQLException e) {
+            plugin.getLogger().severe("删除输入总线失败: " + e.getMessage());
+            e.printStackTrace();
+        }
+    }
+    
+    public java.util.List<com.AlerCello86767.net_storage.controller.InputBusData> loadAllInputBusesFromDB() {
+        java.util.List<com.AlerCello86767.net_storage.controller.InputBusData> dataList = 
+                new java.util.ArrayList<>();
+        
+        if (connection == null) return dataList;
+        
+        try {
+            String sql = "SELECT * FROM input_buses";
+            try (PreparedStatement stmt = connection.prepareStatement(sql);
+                 ResultSet rs = stmt.executeQuery()) {
+                while (rs.next()) {
+                    try {
+                        String busUuidStr = rs.getString("bus_uuid");
+                        UUID busUuid = busUuidStr != null ? UUID.fromString(busUuidStr) : UUID.randomUUID();
+                        
+                        String location = rs.getString("location");
+                        String networkIdStr = rs.getString("network_id");
+                        UUID networkId = networkIdStr != null ? UUID.fromString(networkIdStr) : null;
+                        String containerLocation = rs.getString("container_location");
+                        String containerType = rs.getString("container_type");
+                        
+                        com.AlerCello86767.net_storage.controller.InputBusData data = 
+                                new com.AlerCello86767.net_storage.controller.InputBusData(
+                                        busUuid, location, networkId, containerLocation, containerType);
+                        dataList.add(data);
+                    } catch (Exception e) {
+                        plugin.getLogger().warning("加载输入总线失败，跳过: " + e.getMessage());
+                    }
+                }
+            }
+        } catch (SQLException e) {
+            plugin.getLogger().severe("加载输入总线列表失败: " + e.getMessage());
             e.printStackTrace();
         }
         

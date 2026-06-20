@@ -733,4 +733,122 @@ public class ControllerManager {
         }
         plugin.getLogger().info("外部存储总线保存完成");
     }
+    
+    // ========== 输入总线管理 ==========
+    
+    private final Map<String, InputBusData> inputBuses = new ConcurrentHashMap<>();
+    
+    /**
+     * 注册输入总线（指定UUID）
+     */
+    public void registerInputBus(UUID busUuid, Location location, UUID networkId, Location containerLocation, String containerType) {
+        String locStr = locationToString(location);
+        String containerLocStr = locationToString(containerLocation);
+        
+        InputBusData data = new InputBusData(busUuid, locStr, networkId, containerLocStr, containerType);
+        inputBuses.put(locStr, data);
+        plugin.getDatabaseManager().saveInputBusToDB(data);
+    }
+    
+    /**
+     * 注销输入总线
+     */
+    public void unregisterInputBus(Location location) {
+        String locStr = locationToString(location);
+        inputBuses.remove(locStr);
+        plugin.getDatabaseManager().deleteInputBusFromDB(locStr);
+    }
+    
+    /**
+     * 获取输入总线数据（通过位置）
+     */
+    public InputBusData getInputBus(Location location) {
+        return inputBuses.get(locationToString(location));
+    }
+    
+    /**
+     * 获取输入总线数据（通过UUID）
+     */
+    public InputBusData getInputBusByUuid(UUID busUuid) {
+        for (InputBusData data : inputBuses.values()) {
+            if (data.busUuid.equals(busUuid)) {
+                return data;
+            }
+        }
+        return null;
+    }
+    
+    /**
+     * 检查是否是输入总线
+     */
+    public boolean isInputBus(Location location) {
+        return inputBuses.containsKey(locationToString(location));
+    }
+    
+    /**
+     * 获取所有连接到指定网络的输入总线
+     */
+    public List<InputBusData> getInputBusesByNetwork(UUID networkId) {
+        List<InputBusData> result = new ArrayList<>();
+        for (InputBusData data : inputBuses.values()) {
+            if (networkId.equals(data.networkId)) {
+                result.add(data);
+            }
+        }
+        return result;
+    }
+    
+    /**
+     * 获取所有输入总线
+     */
+    public Collection<InputBusData> getAllInputBuses() {
+        return inputBuses.values();
+    }
+    
+    /**
+     * 断开输入总线的网络连接
+     */
+    public void disconnectInputBus(Location location) {
+        String locStr = locationToString(location);
+        InputBusData data = inputBuses.get(locStr);
+        if (data != null) {
+            data.networkId = null;
+            plugin.getDatabaseManager().saveInputBusToDB(data);
+        }
+    }
+    
+    /**
+     * 删除网络时断开所有输入总线
+     */
+    public void removeInputBusesForNetwork(UUID networkId) {
+        for (Map.Entry<String, InputBusData> entry : inputBuses.entrySet()) {
+            if (networkId.equals(entry.getValue().networkId)) {
+                entry.getValue().networkId = null;
+                plugin.getDatabaseManager().saveInputBusToDB(entry.getValue());
+            }
+        }
+    }
+    
+    /**
+     * 加载所有输入总线
+     */
+    public void loadAllInputBuses() {
+        plugin.getLogger().info("开始加载所有输入总线...");
+        List<InputBusData> dataList = plugin.getDatabaseManager().loadAllInputBusesFromDB();
+        for (InputBusData data : dataList) {
+            inputBuses.put(data.location, data);
+        }
+        plugin.getLogger().info("输入总线加载完成，共 " + inputBuses.size() + " 个");
+    }
+    
+    /**
+     * 保存所有输入总线
+     */
+    public void saveAllInputBuses() {
+        plugin.getLogger().info("保存所有输入总线...");
+        for (InputBusData data : inputBuses.values()) {
+            plugin.getDatabaseManager().saveInputBusToDB(data);
+        }
+        plugin.getLogger().info("输入总线保存完成");
+    }
 }
