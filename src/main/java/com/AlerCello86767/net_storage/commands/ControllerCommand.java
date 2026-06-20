@@ -204,11 +204,7 @@ public class ControllerCommand implements CommandExecutor {
         lore.add(ChatColor.DARK_GRAY + "类型: external_storage_bus");
         meta.setLore(lore);
 
-        // 存储总线UUID到PDC
-        UUID busUuid = UUID.randomUUID();
-        NamespacedKey BUS_UUID_KEY = new NamespacedKey(plugin, "bus_uuid");
         meta.getPersistentDataContainer().set(ITEM_TYPE_KEY, PersistentDataType.STRING, "external_storage_bus");
-        meta.getPersistentDataContainer().set(BUS_UUID_KEY, PersistentDataType.STRING, busUuid.toString());
 
         item.setItemMeta(meta);
         return item;

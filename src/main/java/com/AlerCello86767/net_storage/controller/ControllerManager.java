@@ -628,13 +628,6 @@ public class ControllerManager {
     private final Map<String, ExternalStorageBusData> externalStorageBuses = new ConcurrentHashMap<>();
     
     /**
-     * 注册外部存储总线（自动生成UUID）
-     */
-    public void registerExternalStorageBus(Location location, UUID networkId, Location containerLocation, String containerType) {
-        registerExternalStorageBus(UUID.randomUUID(), location, networkId, containerLocation, containerType);
-    }
-    
-    /**
      * 注册外部存储总线（指定UUID）
      */
     public void registerExternalStorageBus(UUID busUuid, Location location, UUID networkId, Location containerLocation, String containerType) {

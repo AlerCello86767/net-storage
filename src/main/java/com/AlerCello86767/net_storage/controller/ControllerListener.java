@@ -175,14 +175,11 @@ public class ControllerListener implements Listener {
             return;
         }
         
-        // 检测末地烛底座方向，找到接触的方块
         org.bukkit.block.data.Directional directionalData = (org.bukkit.block.data.Directional) block.getBlockData();
         org.bukkit.block.BlockFace facing = directionalData.getFacing();
         
-        // 获取底座接触的方块（末地烛面向的反方向）
         Block containerBlock = block.getRelative(facing.getOppositeFace());
         
-        // 检查是否是容器
         if (!isContainer(containerBlock)) {
             player.sendMessage(ChatColor.RED + "请将底座对准容器放置！");
             player.sendMessage(ChatColor.GRAY + "支持的容器: 箱子、陷阱箱、漏斗、熔炉、高炉、烟熏炉、发射器、投掷器、潜影盒");
@@ -190,25 +187,9 @@ public class ControllerListener implements Listener {
             return;
         }
         
-        // 从物品PDC读取UUID，如果没有则生成新UUID
-        ItemStack item = event.getItemInHand();
-        UUID busUuid = null;
-        if (item != null && item.hasItemMeta()) {
-            org.bukkit.NamespacedKey BUS_UUID_KEY = new org.bukkit.NamespacedKey(plugin, "bus_uuid");
-            String uuidStr = item.getItemMeta().getPersistentDataContainer().get(BUS_UUID_KEY, org.bukkit.persistence.PersistentDataType.STRING);
-            if (uuidStr != null) {
-                try {
-                    busUuid = UUID.fromString(uuidStr);
-                } catch (Exception e) {
-                    busUuid = UUID.randomUUID();
-                }
-            }
-        }
-        if (busUuid == null) {
-            busUuid = UUID.randomUUID();
-        }
+        // 放置时生成新的UUID
+        UUID busUuid = UUID.randomUUID();
         
-        // 注册外部存储总线
         plugin.getControllerManager().registerExternalStorageBus(
                 busUuid,
                 location, 
