@@ -1,0 +1,42 @@
+# NetStorage 配置文件
+# 版本: 1.0.0
+
+# 数据库设置
+database:
+  type: "h2"
+  h2:
+    file: "storage"
+
+# 网络设置
+network:
+  max-networks-per-player: 5
+  max-nodes-per-network: 50
+  max-item-types-per-network: 1000
+
+# 性能设置
+performance:
+  save-interval: 300
+  async-operations: true
+
+# 控制器设置
+controller:
+  enabled: true
+  block-type: "HONEYCOMB_BLOCK"
+  item-name: "&e网络控制器"
+  auto-create-network: true
+  network-name-prefix: "控制器网络-"
+
+# 磁盘设置
+disk:
+  max-capacity: 1024
+  item-material: "MAP"
+  manipulator:
+    max-disks: 8
+    item-name: "&b磁盘操纵器"
+  terminal:
+    item-name: "&a终端"
+
+# 消息设置
+messages:
+  prefix: "&8[&bNetStorage&8] &r"
+  verbose: true

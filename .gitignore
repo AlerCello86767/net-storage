@@ -1,0 +1,32 @@
+# Gradle
+.gradle/
+build/
+!gradle/wrapper/gradle-wrapper.jar
+
+# IDE
+.idea/
+*.iml
+*.iws
+*.ipr
+out/
+
+# 本地运行环境（很大！）
+run/
+libraries/
+cache/
+logs/
+world*/
+*.mca
+*.dat
+
+# 系统文件
+.DS_Store
+Thumbs.db
+
+# 备份文件
+*.zip
+*.log
+*.gz
+
+# 开发日志
+develop.log

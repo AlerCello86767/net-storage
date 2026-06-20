@@ -1,0 +1,52 @@
+name: NetStorage
+version: 1.0.0
+main: com.AlerCello86767.net_storage.Net_storage
+api-version: 1.21
+author: AlerCello86767
+description: 类似AE2的存储网络插件
+
+commands:
+  network:
+    description: NetStorage网络管理命令
+    usage: /network <create|list|info|items|delete|rename|help>
+    aliases: [ns, net]
+
+  testgui:
+    description: 打开GUI测试界面
+    usage: /testgui
+    permission: netstorage.admin
+
+  netdebug:
+    description: 调试命令（获取控制器等）
+    usage: /netdebug give [数量]
+    permission: netstorage.admin
+
+  disktest:
+    description: 磁盘测试命令
+    usage: /disktest <add|remove|clean|check> [参数]
+    permission: netstorage.admin
+
+permissions:
+  netstorage.use:
+    description: 允许使用基础查询命令（list, info, items, help）
+    default: true
+
+  netstorage.create:
+    description: 允许创建网络
+    default: op
+
+  netstorage.delete:
+    description: 允许删除网络
+    default: op
+
+  netstorage.rename:
+    description: 允许重命名网络
+    default: op
+
+  netstorage.admin:
+    description: 所有管理权限
+    default: op
+    children:
+      netstorage.create: true
+      netstorage.delete: true
+      netstorage.rename: true
