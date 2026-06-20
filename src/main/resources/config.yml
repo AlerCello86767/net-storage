@@ -30,6 +30,19 @@ controller:
 disk:
   max-capacity: 1024
   item-material: "MAP"
+  types:
+    disk_1k:
+      capacity: 1024
+      display-name: "&b1K 存储磁盘"
+      custom-model-data: 1001
+    disk_4k:
+      capacity: 4096
+      display-name: "&c4K 存储磁盘"
+      custom-model-data: 1002
+    disk_16k:
+      capacity: 16384
+      display-name: "&616K 存储磁盘"
+      custom-model-data: 1003
   manipulator:
     max-disks: 8
     item-name: "&b磁盘操纵器"

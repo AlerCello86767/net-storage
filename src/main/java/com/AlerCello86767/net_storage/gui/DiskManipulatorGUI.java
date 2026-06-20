@@ -69,10 +69,14 @@ public class DiskManipulatorGUI extends BaseGUI {
             }
         }
         
-        // 计算磁盘容量信息
+        // 计算磁盘容量信息（根据磁盘类型）
         int insertedDisks = manipulatorData.getInsertedDiskCount();
-        int maxCapacity = diskManager.getMaxCapacity();
-        int totalCapacity = insertedDisks * maxCapacity;
+        int totalCapacity = 0;
+        for (UUID diskUuid : manipulatorData.slots) {
+            if (diskUuid != null) {
+                totalCapacity += diskManager.getDiskCapacity(diskUuid);
+            }
+        }
         
         // 计算已用空间
         int usedSpace = 0;
@@ -150,7 +154,7 @@ public class DiskManipulatorGUI extends BaseGUI {
                     // 添加磁盘显示信息
                     List<DiskItem> items = diskManager.getDiskData(diskUuid);
                     int itemCount = diskManager.getTotalItems(items);
-                    int maxCap = diskManager.getMaxCapacity();
+                    int maxCap = diskManager.getDiskCapacity(diskUuid);
                     int usagePercent = (itemCount * 100) / maxCap;
                     
                     ItemStack displayItem = new ItemBuilder(diskItem.clone())

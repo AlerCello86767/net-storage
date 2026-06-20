@@ -217,8 +217,11 @@ public class TerminalGUI extends BaseGUI {
         // 计算外部存储总线数量
         int externalBusCount = plugin.getControllerManager().getExternalStorageBusesByNetwork(networkId).size();
         
-        // 计算磁盘容量
-        int diskCapacity = diskCount * diskManager.getMaxCapacity();
+        // 计算磁盘容量（根据磁盘类型）
+        int diskCapacity = 0;
+        for (UUID diskUuid : networkDisks) {
+            diskCapacity += diskManager.getDiskCapacity(diskUuid);
+        }
         int diskUsedSpace = calculateUsedSpace();
         int diskRemaining = diskCapacity - diskUsedSpace;
         
@@ -654,8 +657,11 @@ public class TerminalGUI extends BaseGUI {
      * 获取网络总剩余空间 - 从所有磁盘累加
      */
     public int getTotalRemainingSpace() {
-        // 磁盘容量
-        int diskCapacity = networkDisks.size() * diskManager.getMaxCapacity();
+        // 磁盘容量（根据磁盘类型）
+        int diskCapacity = 0;
+        for (UUID diskUuid : networkDisks) {
+            diskCapacity += diskManager.getDiskCapacity(diskUuid);
+        }
         int diskUsedSpace = calculateUsedSpace();
         int diskRemaining = diskCapacity - diskUsedSpace;
         
@@ -753,7 +759,7 @@ public class TerminalGUI extends BaseGUI {
             
             List<DiskItem> diskItems = diskManager.getDiskData(diskUuid);
             int usedSpace = diskManager.getTotalItems(diskItems);
-            int remainingSpace = diskManager.getMaxCapacity() - usedSpace;
+            int remainingSpace = diskManager.getDiskCapacity(diskUuid) - usedSpace;
             
             if (remainingSpace <= 0) continue;
             
@@ -777,7 +783,7 @@ public class TerminalGUI extends BaseGUI {
             
             List<DiskItem> diskItems = diskManager.getDiskData(diskUuid);
             int usedSpace = diskManager.getTotalItems(diskItems);
-            int remainingSpace = diskManager.getMaxCapacity() - usedSpace;
+            int remainingSpace = diskManager.getDiskCapacity(diskUuid) - usedSpace;
             
             if (remainingSpace <= 0) continue;
             

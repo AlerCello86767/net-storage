@@ -33,6 +33,7 @@ public class DatabaseManager {
             connection = DriverManager.getConnection(url, "sa", "");
             
             createTables();
+            migrateDisksTable();
             plugin.getLogger().info("数据库初始化成功！");
         } catch (ClassNotFoundException e) {
             plugin.getLogger().severe("H2 数据库驱动未找到: " + e.getMessage());
@@ -81,6 +82,7 @@ public class DatabaseManager {
             CREATE TABLE IF NOT EXISTS disks (
                 disk_uuid VARCHAR(36) PRIMARY KEY,
                 item_data TEXT,
+                disk_type VARCHAR(16) DEFAULT 'disk_1k',
                 created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
             )
         """;
@@ -131,6 +133,29 @@ public class DatabaseManager {
             stmt.execute(createDiskManipulators);
             stmt.execute(createTerminals);
             stmt.execute(createExternalStorageBuses);
+        }
+    }
+    
+    public void migrateDisksTable() {
+        if (connection == null) return;
+        
+        try (Statement stmt = connection.createStatement()) {
+            stmt.execute("ALTER TABLE disks ADD COLUMN IF NOT EXISTS disk_type VARCHAR(16) DEFAULT 'disk_1k'");
+            
+            String countSql = "SELECT COUNT(*) FROM disks WHERE disk_type IS NULL OR disk_type = ''";
+            try (ResultSet rs = stmt.executeQuery(countSql)) {
+                if (rs.next()) {
+                    int count = rs.getInt(1);
+                    if (count > 0) {
+                        stmt.execute("UPDATE disks SET disk_type = 'disk_1k' WHERE disk_type IS NULL OR disk_type = ''");
+                        plugin.getLogger().info("迁移了 " + count + " 个磁盘数据");
+                    }
+                }
+            }
+            
+            plugin.getLogger().info("磁盘表迁移完成");
+        } catch (SQLException e) {
+            plugin.getLogger().warning("磁盘表迁移失败: " + e.getMessage());
         }
     }
 
@@ -430,25 +455,30 @@ public class DatabaseManager {
 
     // ========== 磁盘操作 ==========
 
-    public void saveDiskToDB(UUID diskUuid, String itemData) {
+    public void saveDiskToDB(UUID diskUuid, String itemData, String diskType) {
         if (connection == null) return;
 
         try {
             String sql = """
-                MERGE INTO disks (disk_uuid, item_data)
+                MERGE INTO disks (disk_uuid, item_data, disk_type)
                 KEY (disk_uuid)
-                VALUES (?, ?)
+                VALUES (?, ?, ?)
             """;
 
             try (PreparedStatement stmt = connection.prepareStatement(sql)) {
                 stmt.setString(1, diskUuid.toString());
                 stmt.setString(2, itemData);
+                stmt.setString(3, diskType != null ? diskType : "disk_1k");
                 stmt.executeUpdate();
             }
         } catch (SQLException e) {
             plugin.getLogger().severe("保存磁盘数据失败: " + e.getMessage());
             e.printStackTrace();
         }
+    }
+
+    public void saveDiskToDB(UUID diskUuid, String itemData) {
+        saveDiskToDB(diskUuid, itemData, "disk_1k");
     }
 
     public String loadDiskFromDB(UUID diskUuid) {
@@ -470,6 +500,28 @@ public class DatabaseManager {
         }
 
         return null;
+    }
+
+    public String loadDiskTypeFromDB(UUID diskUuid) {
+        if (connection == null) return "disk_1k";
+
+        try {
+            String sql = "SELECT disk_type FROM disks WHERE disk_uuid = ?";
+            try (PreparedStatement stmt = connection.prepareStatement(sql)) {
+                stmt.setString(1, diskUuid.toString());
+                try (ResultSet rs = stmt.executeQuery()) {
+                    if (rs.next()) {
+                        String type = rs.getString("disk_type");
+                        return type != null ? type : "disk_1k";
+                    }
+                }
+            }
+        } catch (SQLException e) {
+            plugin.getLogger().severe("加载磁盘类型失败: " + e.getMessage());
+            e.printStackTrace();
+        }
+
+        return "disk_1k";
     }
 
     public void deleteDiskFromDB(UUID diskUuid) {

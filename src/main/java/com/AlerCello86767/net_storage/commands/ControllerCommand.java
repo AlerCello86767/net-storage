@@ -64,13 +64,13 @@ public class ControllerCommand implements CommandExecutor {
             case "disk_manipulator" -> createDiskManipulatorItem();
             case "terminal" -> createTerminalItem();
             case "external_storage_bus" -> createExternalStorageBusItem();
-            case "disk_1k" -> plugin.getDiskManager().createDiskItem("disk_1k");
+            case "disk_1k", "disk_4k", "disk_16k" -> plugin.getDiskManager().createDiskItem(type);
             default -> null;
         };
 
         if (item == null) {
             player.sendMessage(ChatColor.RED + "未知类型: " + type);
-            player.sendMessage(ChatColor.GRAY + "可用类型: controller, connect_tool, debug_device, disk_manipulator, terminal, external_storage_bus, disk_1k");
+            player.sendMessage(ChatColor.GRAY + "可用类型: controller, connect_tool, debug_device, disk_manipulator, terminal, external_storage_bus, disk_1k, disk_4k, disk_16k");
             return true;
         }
 

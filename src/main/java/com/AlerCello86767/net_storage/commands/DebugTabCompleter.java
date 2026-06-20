@@ -13,7 +13,8 @@ public class DebugTabCompleter implements TabCompleter {
 
     private static final List<String> SUB_COMMANDS = Arrays.asList("give");
     private static final List<String> ITEM_TYPES = Arrays.asList(
-            "controller", "connect_tool", "debug_device", "disk_manipulator", "terminal", "external_storage_bus", "disk_1k"
+            "controller", "connect_tool", "debug_device", "disk_manipulator", 
+            "terminal", "external_storage_bus", "disk_1k", "disk_4k", "disk_16k"
     );
 
     @Override

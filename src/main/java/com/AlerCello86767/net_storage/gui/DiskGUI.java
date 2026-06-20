@@ -84,7 +84,7 @@ public class DiskGUI extends BaseGUI {
      */
     private void setupInfoSlot() {
         int totalItems = diskManager.getTotalItems(diskItems);
-        int maxCapacity = diskManager.getMaxCapacity();
+        int maxCapacity = diskManager.getDiskCapacity(diskType);
         int percentage = maxCapacity > 0 ? (totalItems * 100) / maxCapacity : 0;
         
         // 获取创建时间（从数据库）

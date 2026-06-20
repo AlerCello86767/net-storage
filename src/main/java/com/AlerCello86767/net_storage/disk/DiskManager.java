@@ -37,6 +37,9 @@ public class DiskManager {
     // 磁盘数据缓存 - 使用 ConcurrentHashMap 保证并发安全
     private final ConcurrentHashMap<UUID, List<DiskItem>> diskCache = new ConcurrentHashMap<>();
     
+    // 磁盘类型缓存
+    private final ConcurrentHashMap<UUID, String> diskTypeCache = new ConcurrentHashMap<>();
+    
     // 待保存的磁盘队列 - 用于批量异步保存
     private final ConcurrentHashMap<UUID, List<DiskItem>> pendingSaves = new ConcurrentHashMap<>();
     
@@ -54,18 +57,55 @@ public class DiskManager {
     // 磁盘容量（从配置读取）
     private int maxCapacity;
     
+    // 磁盘类型配置
+    private final java.util.Map<String, DiskTypeConfig> diskTypes = new java.util.HashMap<>();
+    
     public DiskManager(Net_storage plugin) {
         this.plugin = plugin;
         this.DISK_UUID_KEY = new NamespacedKey(plugin, "disk_uuid");
         this.maxCapacity = plugin.getConfigManager().getConfig()
                 .getInt("disk.max-capacity", 1024);
+        loadDiskTypes();
+    }
+    
+    private void loadDiskTypes() {
+        diskTypes.clear();
+        
+        DiskTypeConfig config1k = new DiskTypeConfig();
+        config1k.capacity = 1024;
+        config1k.displayName = "&b1K 存储磁盘";
+        config1k.customModelData = 1001;
+        diskTypes.put("disk_1k", config1k);
+        
+        DiskTypeConfig config4k = new DiskTypeConfig();
+        config4k.capacity = 4096;
+        config4k.displayName = "&c4K 存储磁盘";
+        config4k.customModelData = 1002;
+        diskTypes.put("disk_4k", config4k);
+        
+        DiskTypeConfig config16k = new DiskTypeConfig();
+        config16k.capacity = 16384;
+        config16k.displayName = "&616K 存储磁盘";
+        config16k.customModelData = 1003;
+        diskTypes.put("disk_16k", config16k);
+    }
+    
+    private DiskTypeConfig getDiskTypeConfig(String diskType) {
+        return diskTypes.getOrDefault(diskType, diskTypes.get("disk_1k"));
+    }
+    
+    private static class DiskTypeConfig {
+        int capacity;
+        String displayName;
+        int customModelData;
     }
     
     /**
      * 创建新的磁盘物品
      */
     public ItemStack createDiskItem(String diskType) {
-        // 从配置读取材质，默认为空白地图
+        DiskTypeConfig config = getDiskTypeConfig(diskType);
+        
         String materialName = plugin.getConfigManager().getConfig()
                 .getString("disk.item-material", "MAP");
         Material material = Material.matchMaterial(materialName);
@@ -73,7 +113,7 @@ public class DiskManager {
             material = Material.MAP;
         }
         
-        String displayName = ChatColor.translateAlternateColorCodes('&', "&b1K 存储磁盘");
+        String displayName = ChatColor.translateAlternateColorCodes('&', config.displayName);
         
         ItemStack item = new ItemStack(material);
         ItemMeta meta = item.getItemMeta();
@@ -83,28 +123,35 @@ public class DiskManager {
         meta.setDisplayName(displayName);
         
         List<String> lore = new ArrayList<>();
-        lore.add(ChatColor.GRAY + "容量: " + ChatColor.WHITE + maxCapacity + " 物品");
-        lore.add(ChatColor.GRAY + "使用: " + ChatColor.WHITE + "0/" + maxCapacity);
+        lore.add(ChatColor.GRAY + "容量: " + ChatColor.WHITE + config.capacity + " 物品");
+        lore.add(ChatColor.GRAY + "使用: " + ChatColor.WHITE + "0/" + config.capacity);
         lore.add(ChatColor.DARK_GRAY + "类型: " + diskType);
         lore.add("");
         lore.add(ChatColor.YELLOW + "使用 /netdebug disktest 操作");
         meta.setLore(lore);
         
-        // 生成 UUID 并存储到 PDC
+        meta.setCustomModelData(config.customModelData);
+        
         UUID diskUuid = UUID.randomUUID();
         meta.getPersistentDataContainer().set(DISK_UUID_KEY, PersistentDataType.STRING, diskUuid.toString());
         
-        // 存储物品类型标记
         meta.getPersistentDataContainer().set(
                 new NamespacedKey(plugin, "item_type"),
                 PersistentDataType.STRING,
                 diskType
         );
         
+        meta.getPersistentDataContainer().set(
+                new NamespacedKey(plugin, "disk_capacity"),
+                PersistentDataType.INTEGER,
+                config.capacity
+        );
+        
         item.setItemMeta(meta);
         
-        // 在数据库中创建磁盘记录
-        plugin.getDatabaseManager().saveDiskToDB(diskUuid, "[]");
+        plugin.getDatabaseManager().saveDiskToDB(diskUuid, "[]", diskType);
+        
+        diskTypeCache.put(diskUuid, diskType);
         
         return item;
     }
@@ -148,10 +195,14 @@ public class DiskManager {
             return null;
         }
         
-        // 读取磁盘数据
         String jsonData = plugin.getDatabaseManager().loadDiskFromDB(diskUuid);
         
-        // 从配置读取材质
+        String diskType = diskTypeCache.getOrDefault(diskUuid, null);
+        if (diskType == null) {
+            diskType = plugin.getDatabaseManager().loadDiskTypeFromDB(diskUuid);
+            diskTypeCache.put(diskUuid, diskType);
+        }
+        
         String materialName = plugin.getConfigManager().getConfig()
                 .getString("disk.item-material", "MAP");
         Material material = Material.matchMaterial(materialName);
@@ -164,10 +215,6 @@ public class DiskManager {
         
         if (meta == null) return item;
         
-        // 设置显示名称
-        meta.setDisplayName(ChatColor.translateAlternateColorCodes('&', "&b存储磁盘"));
-        
-        // 计算使用量
         int usedItems = 0;
         if (jsonData != null && !jsonData.isEmpty()) {
             try {
@@ -180,21 +227,24 @@ public class DiskManager {
             }
         }
         
-        // 设置Lore
+        DiskTypeConfig config = getDiskTypeConfig(diskType);
+        
+        meta.setDisplayName(ChatColor.translateAlternateColorCodes('&', config.displayName));
+        meta.setCustomModelData(config.customModelData);
+        
         List<String> lore = new ArrayList<>();
-        lore.add(ChatColor.GRAY + "容量: " + ChatColor.WHITE + maxCapacity + " 物品");
-        lore.add(ChatColor.GRAY + "使用: " + ChatColor.WHITE + usedItems + "/" + maxCapacity);
-        lore.add(ChatColor.DARK_GRAY + "类型: disk_1k");
+        lore.add(ChatColor.GRAY + "容量: " + ChatColor.WHITE + config.capacity + " 物品");
+        lore.add(ChatColor.GRAY + "使用: " + ChatColor.WHITE + usedItems + "/" + config.capacity);
+        lore.add(ChatColor.DARK_GRAY + "类型: " + diskType);
         lore.add("");
         lore.add(ChatColor.YELLOW + "使用 /netdebug disktest 操作");
         meta.setLore(lore);
         
-        // 存储UUID
         meta.getPersistentDataContainer().set(DISK_UUID_KEY, PersistentDataType.STRING, diskUuid.toString());
         meta.getPersistentDataContainer().set(
                 new NamespacedKey(plugin, "item_type"),
                 PersistentDataType.STRING,
-                "disk_1k"
+                diskType
         );
         
         item.setItemMeta(meta);
@@ -206,14 +256,19 @@ public class DiskManager {
      * 获取磁盘数据（优先使用缓存）
      */
     public List<DiskItem> getDiskData(UUID diskUuid) {
-        // 优先从缓存获取
         List<DiskItem> cached = diskCache.get(diskUuid);
         if (cached != null) {
-            return new ArrayList<>(cached); // 返回副本，避免外部修改影响缓存
+            return new ArrayList<>(cached);
         }
         
-        // 缓存不存在，从数据库加载
         String jsonData = plugin.getDatabaseManager().loadDiskFromDB(diskUuid);
+        
+        String diskType = diskTypeCache.getOrDefault(diskUuid, null);
+        if (diskType == null) {
+            diskType = plugin.getDatabaseManager().loadDiskTypeFromDB(diskUuid);
+            diskTypeCache.put(diskUuid, diskType);
+        }
+        
         if (jsonData == null || jsonData.isEmpty()) {
             List<DiskItem> emptyList = new ArrayList<>();
             diskCache.put(diskUuid, emptyList);
@@ -226,7 +281,7 @@ public class DiskManager {
                 items = new ArrayList<>();
             }
             diskCache.put(diskUuid, items);
-            return new ArrayList<>(items); // 返回副本
+            return new ArrayList<>(items);
         } catch (Exception e) {
             plugin.getLogger().warning("解析磁盘数据失败: " + e.getMessage());
             List<DiskItem> emptyList = new ArrayList<>();
@@ -236,16 +291,29 @@ public class DiskManager {
     }
     
     /**
+     * 获取磁盘类型
+     */
+    public String getDiskType(UUID diskUuid) {
+        String diskType = diskTypeCache.get(diskUuid);
+        if (diskType != null) {
+            return diskType;
+        }
+        diskType = plugin.getDatabaseManager().loadDiskTypeFromDB(diskUuid);
+        diskTypeCache.put(diskUuid, diskType);
+        return diskType;
+    }
+    
+    /**
      * 保存磁盘数据（更新缓存并异步保存到数据库）
      */
     public void saveDiskData(UUID diskUuid, List<DiskItem> items) {
-        // 更新缓存
         diskCache.put(diskUuid, new ArrayList<>(items));
         
-        // 异步保存到数据库
+        String diskType = diskTypeCache.getOrDefault(diskUuid, "disk_1k");
+        
         plugin.getServer().getScheduler().runTaskAsynchronously(plugin, () -> {
             String jsonData = gson.toJson(items);
-            plugin.getDatabaseManager().saveDiskToDB(diskUuid, jsonData);
+            plugin.getDatabaseManager().saveDiskToDB(diskUuid, jsonData, diskType);
         });
     }
     
@@ -259,8 +327,10 @@ public class DiskManager {
         
         plugin.getServer().getScheduler().runTaskAsynchronously(plugin, () -> {
             for (ConcurrentHashMap.Entry<UUID, List<DiskItem>> entry : diskCache.entrySet()) {
+                UUID diskUuid = entry.getKey();
                 String jsonData = gson.toJson(entry.getValue());
-                plugin.getDatabaseManager().saveDiskToDB(entry.getKey(), jsonData);
+                String diskType = diskTypeCache.getOrDefault(diskUuid, "disk_1k");
+                plugin.getDatabaseManager().saveDiskToDB(diskUuid, jsonData, diskType);
             }
             plugin.getLogger().info("批量保存磁盘数据完成，共 " + diskCache.size() + " 个磁盘");
         });
@@ -271,6 +341,7 @@ public class DiskManager {
      */
     public void clearCache(UUID diskUuid) {
         diskCache.remove(diskUuid);
+        diskTypeCache.remove(diskUuid);
     }
     
     /**
@@ -278,6 +349,7 @@ public class DiskManager {
      */
     public void clearAllCache() {
         diskCache.clear();
+        diskTypeCache.clear();
     }
     
     /**
@@ -423,6 +495,22 @@ public class DiskManager {
      */
     public int getMaxCapacity() {
         return maxCapacity;
+    }
+    
+    /**
+     * 获取指定磁盘类型的容量
+     */
+    public int getDiskCapacity(String diskType) {
+        DiskTypeConfig config = getDiskTypeConfig(diskType);
+        return config != null ? config.capacity : maxCapacity;
+    }
+    
+    /**
+     * 获取指定磁盘UUID的容量
+     */
+    public int getDiskCapacity(UUID diskUuid) {
+        String diskType = getDiskType(diskUuid);
+        return getDiskCapacity(diskType);
     }
     
     /**
