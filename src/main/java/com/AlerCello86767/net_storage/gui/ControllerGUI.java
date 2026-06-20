@@ -12,6 +12,7 @@ import org.bukkit.ChatColor;
 import org.bukkit.Location;
 import org.bukkit.Material;
 import org.bukkit.entity.Player;
+import org.bukkit.event.inventory.InventoryClickEvent;
 import org.bukkit.inventory.ItemStack;
 
 import java.text.SimpleDateFormat;
@@ -326,6 +327,9 @@ public class ControllerGUI extends BaseGUI {
             case EXTERNAL_STORAGE_BUS:
                 deviceTypeName = "外部存储总线";
                 break;
+            case INPUT_BUS:
+                deviceTypeName = "输入总线";
+                break;
             default:
                 deviceTypeName = "未知设备";
         }
@@ -436,11 +440,10 @@ public class ControllerGUI extends BaseGUI {
     }
 
     @Override
-    protected void handlePlayerInventoryClick(org.bukkit.event.inventory.InventoryClickEvent event, int slot, ItemStack item, com.AlerCello86767.net_storage.gui.ClickType clickType) {
-        // 禁止玩家背包点击
+    // 修复 handlePlayerInventoryClick 方法
+    protected void handlePlayerInventoryClick(InventoryClickEvent event, int slot, ItemStack item, ClickType clickType) {
         event.setCancelled(true);
     }
-
     @Override
     protected void onOpen() {
         player.sendMessage(ChatColor.GREEN + "已打开网络控制器界面");

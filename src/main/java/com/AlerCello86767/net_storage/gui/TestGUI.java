@@ -5,22 +5,28 @@ import org.bukkit.ChatColor;
 import org.bukkit.Material;
 import org.bukkit.entity.Player;
 import org.bukkit.event.inventory.InventoryClickEvent;
+import org.bukkit.event.inventory.InventoryDragEvent;
 import org.bukkit.inventory.ItemStack;
 
 import java.util.Arrays;
-import java.util.HashMap;
+import java.util.HashSet;
 import java.util.List;
-import java.util.Map;
 import java.util.Random;
+import java.util.Set;
 
 /**
- * 测试GUI - 演示所有点击事件
+ * 测试GUI - 演示所有点击事件和拖拽事件
  */
 public class TestGUI extends BaseGUI {
 
-    private final Map<Integer, ItemStack> testItems = new HashMap<>();
-    private final Random random = new Random();
     private int counter = 0;
+    private final Random random = new Random();
+
+    // 拖拽测试区域
+    private static final int DRAG_ALLOW_START = 9;
+    private static final int DRAG_ALLOW_END = 35;
+    private static final int DRAG_FORBID_START = 36;
+    private static final int DRAG_FORBID_END = 44;
 
     private static final List<Material> RANDOM_MATERIALS = Arrays.asList(
             Material.DIAMOND,
@@ -38,17 +44,33 @@ public class TestGUI extends BaseGUI {
     );
 
     public TestGUI(Player player) {
-        super(player, 54, ChatColor.BLUE + "测试界面");
+        super(player, 54, ChatColor.BLUE + "测试界面 - 点击 & 拖拽");
     }
 
     @Override
     public void initialize() {
         inventory.clear();
         clearClickActions();
-        testItems.clear();
 
         setBorder(ItemBuilder.createBorder());
 
+        // === 第一行：功能按钮 ===
+        setupFunctionButtons();
+
+        // === 第二到四行：拖拽允许区域（绿色） ===
+        setupDragAllowArea();
+
+        // === 第五行：拖拽禁止区域（红色） ===
+        setupDragForbidArea();
+
+        // === 第六行：随机物品 + 关闭按钮 ===
+        setupBottomRow();
+
+        // === 说明 ===
+        setupInfoItem();
+    }
+
+    private void setupFunctionButtons() {
         // 红色羊毛 - 左键测试
         ItemStack leftClickItem = new ItemBuilder(Material.RED_WOOL)
                 .setName("&c左键点击")
@@ -92,44 +114,6 @@ public class TestGUI extends BaseGUI {
             updateCounterItem();
             p.sendMessage(ChatColor.GREEN + "点击次数: " + ChatColor.YELLOW + counter);
         });
-
-        // 区域点击
-        setRegionClickAction(20, 30, (p, item, slot, clickType) -> {
-            if (item != null && item.getType() != Material.AIR) {
-                p.sendMessage(ChatColor.AQUA + "你点击了区域物品! 槽位: " + slot + " 物品: " + item.getType().name());
-            }
-        });
-
-        // 关闭按钮
-        setItem(49, ItemBuilder.createCloseButton());
-        setClickAction(49, (p, item, slot, clickType) -> {
-            p.closeInventory();
-            p.sendMessage(ChatColor.GREEN + "已关闭界面！");
-        });
-
-        // 随机物品
-        for (int i = 20; i < 30; i++) {
-            Material randomMat = RANDOM_MATERIALS.get(random.nextInt(RANDOM_MATERIALS.size()));
-            ItemStack item = new ItemBuilder(randomMat)
-                    .setName("&7物品 #" + (i - 19))
-                    .setLore("&8点击我试试")
-                    .build();
-            setItem(i, item);
-        }
-
-        // 使用说明
-        ItemStack info = new ItemBuilder(Material.OAK_SIGN)
-                .setName("&e&l使用说明")
-                .setLore(
-                        "&7红色羊毛: 左键点击测试",
-                        "&7绿色羊毛: 右键点击测试",
-                        "&7蓝色羊毛: 显示详细信息",
-                        "&7金色锭: 点击计数",
-                        "&7中间物品: 区域点击测试",
-                        "&7背包物品: 也可点击测试"
-                )
-                .build();
-        setItem(4, info);
     }
 
     private void updateCounterItem() {
@@ -138,6 +122,137 @@ public class TestGUI extends BaseGUI {
                 .setLore("&7点击次数: &e" + counter)
                 .build();
         setItem(16, newItem);
+    }
+
+    private void setupDragAllowArea() {
+        // 绿色玻璃板 - 标识可拖拽区域
+        ItemStack allowItem = new ItemBuilder(Material.GREEN_STAINED_GLASS_PANE)
+                .setName("&a可拖拽区域")
+                .setLore("&7从背包拖拽物品到这里", "&7会自动放置")
+                .hideAll()
+                .build();
+
+        for (int i = DRAG_ALLOW_START; i <= DRAG_ALLOW_END; i++) {
+            inventory.setItem(i, allowItem);
+        }
+    }
+
+    private void setupDragForbidArea() {
+        // 红色玻璃板 - 标识禁止拖拽区域
+        ItemStack forbidItem = new ItemBuilder(Material.RED_STAINED_GLASS_PANE)
+                .setName("&c禁止拖拽区域")
+                .setLore("&7拖拽到此区域会被拒绝")
+                .hideAll()
+                .build();
+
+        for (int i = DRAG_FORBID_START; i <= DRAG_FORBID_END; i++) {
+            inventory.setItem(i, forbidItem);
+        }
+    }
+
+    private void setupBottomRow() {
+        // 随机物品（槽位 45-48）
+        for (int i = 45; i <= 48; i++) {
+            Material randomMat = RANDOM_MATERIALS.get(random.nextInt(RANDOM_MATERIALS.size()));
+            ItemStack item = new ItemBuilder(randomMat)
+                    .setName("&7随机物品")
+                    .setLore("&8点击我试试")
+                    .build();
+            setItem(i, item);
+            setClickAction(i, (p, it, slot, clickType) -> {
+                p.sendMessage(ChatColor.AQUA + "你点击了 " + it.getType().name() + "！");
+            });
+        }
+
+        // 关闭按钮
+        for (int i = 49; i <= 53; i++) {
+            if (i == 49) {
+                setItem(i, ItemBuilder.createCloseButton());
+                setClickAction(i, (p, it, slot, clickType) -> {
+                    p.closeInventory();
+                    p.sendMessage(ChatColor.GREEN + "已关闭界面！");
+                });
+            } else {
+                ItemStack glass = new ItemBuilder(Material.GRAY_STAINED_GLASS_PANE)
+                        .setName(" ")
+                        .hideAll()
+                        .build();
+                setItem(i, glass);
+            }
+        }
+    }
+
+    private void setupInfoItem() {
+        ItemStack info = new ItemBuilder(Material.OAK_SIGN)
+                .setName("&e&l使用说明")
+                .setLore(
+                        "&7红色羊毛: 左键点击测试",
+                        "&7绿色羊毛: 右键点击测试",
+                        "&7蓝色羊毛: 显示详细信息",
+                        "&7金色锭: 点击计数",
+                        "",
+                        "&a绿色区域: 可拖拽放入",
+                        "&c红色区域: 禁止拖拽",
+                        "&7从背包拖拽物品到绿色区域测试"
+                )
+                .build();
+        setItem(4, info);
+    }
+
+    // ========== 拖拽事件处理 ==========
+
+    @Override
+    public void handleDrag(InventoryDragEvent event) {
+        // 1. 过滤出 GUI 区域的槽位
+        Set<Integer> guiSlots = new HashSet<>();
+        for (int rawSlot : event.getRawSlots()) {
+            if (rawSlot < inventory.getSize()) {
+                guiSlots.add(rawSlot);
+            }
+        }
+
+        // 2. 只在背包内拖拽 → 放行
+        if (guiSlots.isEmpty()) {
+            event.setCancelled(false);
+            return;
+        }
+
+        // 3. 检查是否拖拽到禁止区域（红色区域，槽位 36-44）
+        boolean hasForbiddenSlot = false;
+        for (int slot : guiSlots) {
+            if (slot >= DRAG_FORBID_START && slot <= DRAG_FORBID_END) {
+                hasForbiddenSlot = true;
+                break;
+            }
+        }
+
+        if (hasForbiddenSlot) {
+            event.setCancelled(true);
+            player.sendMessage(ChatColor.RED + "禁止拖拽到红色区域！");
+            return;
+        }
+
+        // 4. 检查是否拖拽到允许区域（绿色区域，槽位 9-35）
+        boolean hasAllowSlot = false;
+        for (int slot : guiSlots) {
+            if (slot >= DRAG_ALLOW_START && slot <= DRAG_ALLOW_END) {
+                hasAllowSlot = true;
+                break;
+            }
+        }
+
+        if (hasAllowSlot) {
+            // 放行，让物品进入绿色区域
+            event.setCancelled(false);
+            ItemStack dragged = event.getOldCursor();
+            if (dragged != null && dragged.getType() != Material.AIR) {
+                player.sendMessage(ChatColor.GREEN + "拖拽成功！物品: " + dragged.getType().name() +
+                        " x" + dragged.getAmount() + " 到绿色区域");
+            }
+        } else {
+            // 其他 GUI 区域默认取消
+            event.setCancelled(true);
+        }
     }
 
     @Override
@@ -156,7 +271,8 @@ public class TestGUI extends BaseGUI {
     @Override
     protected void onOpen() {
         player.sendMessage(ChatColor.GREEN + "测试界面已打开！");
-        player.sendMessage(ChatColor.GRAY + "试试点击不同颜色的羊毛查看效果");
+        player.sendMessage(ChatColor.GRAY + "试试从背包拖拽物品到绿色区域");
+        player.sendMessage(ChatColor.GRAY + "拖拽到红色区域会被拒绝");
     }
 
     @Override

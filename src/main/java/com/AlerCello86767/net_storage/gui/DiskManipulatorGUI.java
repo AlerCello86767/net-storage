@@ -6,13 +6,18 @@ import com.AlerCello86767.net_storage.disk.DiskItem;
 import com.AlerCello86767.net_storage.disk.DiskManager;
 import com.AlerCello86767.net_storage.network.StorageNetwork;
 import com.AlerCello86767.net_storage.utils.ItemBuilder;
+import org.bukkit.Bukkit;
 import org.bukkit.ChatColor;
 import org.bukkit.Location;
 import org.bukkit.Material;
 import org.bukkit.entity.Player;
+import org.bukkit.event.inventory.InventoryClickEvent;
 import org.bukkit.inventory.ItemStack;
+import org.bukkit.scheduler.BukkitTask;
 
+import java.util.HashSet;
 import java.util.List;
+import java.util.Set;
 import java.util.UUID;
 
 /**
@@ -25,6 +30,9 @@ public class DiskManipulatorGUI extends BaseGUI {
     private final DiskManipulatorData manipulatorData;
     private final DiskManager diskManager;
     private final Location blockLocation;
+    
+    // 定时刷新任务
+    private BukkitTask refreshTask;
     
     // 槽位定义
     private static final int INFO_SLOT = 0;        // 指南针
@@ -43,6 +51,40 @@ public class DiskManipulatorGUI extends BaseGUI {
         this.blockLocation = blockLocation;
         
         initialize();
+        
+        // 启动定时刷新任务（每3秒 = 60 ticks）
+        startRefreshTask();
+    }
+    
+    /**
+     * 启动定时刷新任务
+     */
+    private void startRefreshTask() {
+        refreshTask = Bukkit.getScheduler().runTaskTimer(plugin, () -> {
+            // 只在玩家打开界面时刷新
+            if (player.isOnline() && player.getOpenInventory().getTitle().equals(getTitle())) {
+                initialize();
+                player.updateInventory();
+            } else {
+                // 玩家已关闭界面，停止刷新任务
+                stopRefreshTask();
+            }
+        }, 60L, 60L); // 60 ticks = 3秒
+    }
+    
+    /**
+     * 停止定时刷新任务
+     */
+    private void stopRefreshTask() {
+        if (refreshTask != null) {
+            refreshTask.cancel();
+            refreshTask = null;
+        }
+    }
+    
+    @Override
+    protected void onClose() {
+        stopRefreshTask();
     }
 
     @Override
@@ -279,20 +321,15 @@ public class DiskManipulatorGUI extends BaseGUI {
      * 处理玩家背包点击事件 - 允许放入磁盘
      */
     @Override
-    protected void handlePlayerInventoryClick(org.bukkit.event.inventory.InventoryClickEvent event, int slot, ItemStack item, com.AlerCello86767.net_storage.gui.ClickType clickType) {
+    protected void handlePlayerInventoryClick(InventoryClickEvent event, int slot, ItemStack item, ClickType clickType) {
         // 检查点击的物品是否是磁盘
         if (item != null && diskManager.isDisk(item)) {
-            // 查找第一个空槽位
             int emptySlot = manipulatorData.getFirstEmptySlot();
             if (emptySlot >= 0) {
-                // 获取磁盘UUID
                 UUID diskUuid = diskManager.getDiskUuidFromItem(item);
                 if (diskUuid != null) {
-                    // 放入磁盘
                     manipulatorData.slots[emptySlot] = diskUuid;
-                    // 保存数据
                     plugin.getDatabaseManager().saveDiskManipulatorToDB(manipulatorData);
-                    // 移除背包中的物品
                     int newAmount = item.getAmount() - 1;
                     if (newAmount <= 0) {
                         event.setCurrentItem(null);
@@ -301,7 +338,6 @@ public class DiskManipulatorGUI extends BaseGUI {
                         newItem.setAmount(newAmount);
                         event.setCurrentItem(newItem);
                     }
-                    // 刷新界面
                     update();
                     player.sendMessage(ChatColor.GREEN + "已插入磁盘！");
                 }
@@ -309,7 +345,6 @@ public class DiskManipulatorGUI extends BaseGUI {
                 player.sendMessage(ChatColor.RED + "磁盘操纵器已满！");
             }
         }
-        // 始终取消事件，防止物品被移动
         event.setCancelled(true);
     }
 
@@ -321,5 +356,93 @@ public class DiskManipulatorGUI extends BaseGUI {
         clickActions.clear();
         initialize();
         player.updateInventory();
+    }
+
+    /**
+     * 处理拖拽事件 - 允许从背包拖拽磁盘到空磁盘槽位
+     */
+    @Override
+    public void handleDrag(org.bukkit.event.inventory.InventoryDragEvent event) {
+        ItemStack cursor = event.getOldCursor();
+
+        // 检查拖拽物品是否为磁盘
+        if (cursor == null || !diskManager.isDisk(cursor)) {
+            // 非磁盘物品，取消拖拽
+            event.setCancelled(true);
+            return;
+        }
+
+        // 分类拖拽涉及的槽位
+        Set<Integer> guiSlots = new HashSet<>();
+        for (int rawSlot : event.getRawSlots()) {
+            if (rawSlot < inventory.getSize()) {
+                guiSlots.add(rawSlot);
+            }
+        }
+
+        // 如果不涉及 GUI 槽位（只在背包内拖拽），放行
+        if (guiSlots.isEmpty()) {
+            return;
+        }
+
+        // 检查所有涉及的 GUI 槽位是否都是空的磁盘槽位
+        boolean allValid = true;
+        for (int slot : guiSlots) {
+            if (slot < DISK_SLOT_START || slot > DISK_SLOT_END) {
+                allValid = false;
+                break;
+            }
+            int diskIndex = slot - SLOT_TO_INDEX_OFFSET;
+            if (manipulatorData.slots[diskIndex] != null) {
+                allValid = false;
+                break;
+            }
+        }
+
+        if (!allValid) {
+            event.setCancelled(true);
+            player.sendMessage(ChatColor.RED + "只能拖拽磁盘到空的磁盘槽位！");
+            return;
+        }
+
+        // 获取磁盘 UUID（所有目标槽位放同一个磁盘）
+        UUID diskUuid = diskManager.getDiskUuidFromItem(cursor);
+        if (diskUuid == null) {
+            event.setCancelled(true);
+            return;
+        }
+
+        // 取消默认拖拽，手动放入
+        event.setCancelled(true);
+
+        // 计算需要放入的数量
+        int guiSlotCount = guiSlots.size();
+        int available = Math.min(cursor.getAmount(), guiSlotCount);
+
+        // 放入磁盘到目标槽位
+        int placed = 0;
+        for (int slot : guiSlots) {
+            if (placed >= available) break;
+            int diskIndex = slot - SLOT_TO_INDEX_OFFSET;
+            manipulatorData.slots[diskIndex] = diskUuid;
+            placed++;
+        }
+
+        // 扣除背包中的物品数量
+        int remaining = cursor.getAmount() - placed;
+        if (remaining <= 0) {
+            event.setCursor(null);
+        } else {
+            ItemStack newCursor = cursor.clone();
+            newCursor.setAmount(remaining);
+            event.setCursor(newCursor);
+        }
+
+        // 保存数据
+        plugin.getDatabaseManager().saveDiskManipulatorToDB(manipulatorData);
+        player.sendMessage(ChatColor.GREEN + "已插入 " + placed + " 个磁盘！");
+
+        // 刷新界面
+        update();
     }
 }

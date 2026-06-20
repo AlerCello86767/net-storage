@@ -71,13 +71,17 @@ public class InputBusTask implements Runnable {
         Container container = (Container) containerBlock.getState();
         org.bukkit.inventory.Inventory inventory = container.getInventory();
         
-        // 遍历容器槽位，找到第一个非空物品
+        // 遍历容器槽位，找到第一个非空物品且未被过滤的物品
         ItemStack sourceItem = null;
         int sourceSlot = -1;
         
         for (int i = 0; i < inventory.getSize(); i++) {
             ItemStack item = inventory.getItem(i);
             if (item != null && item.getType() != Material.AIR) {
+                // 检查物品是否应该被过滤
+                if (inputBus.shouldFilter(item)) {
+                    continue; // 跳过被过滤的物品
+                }
                 sourceItem = item.clone();
                 sourceItem.setAmount(1); // 每次只取 1 个
                 sourceSlot = i;
@@ -86,7 +90,7 @@ public class InputBusTask implements Runnable {
         }
         
         if (sourceItem == null || sourceSlot < 0) {
-            return; // 容器为空
+            return; // 容器为空或没有符合条件的物品
         }
         
         // 尝试存入网络

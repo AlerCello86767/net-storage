@@ -2,8 +2,12 @@ package com.AlerCello86767.net_storage.controller;
 
 import com.AlerCello86767.net_storage.Net_storage;
 import org.bukkit.Location;
+import org.bukkit.Material;
 import org.bukkit.World;
+import org.bukkit.inventory.ItemStack;
 
+import java.util.ArrayList;
+import java.util.List;
 import java.util.UUID;
 
 /**
@@ -18,6 +22,11 @@ public class InputBusData {
     public String containerLocation; // 容器位置
     public String containerType;   // 容器类型
     
+    // 过滤相关设置
+    public List<String> filterItems;  // 过滤物品列表（序列化后的物品）
+    public boolean whitelistMode;     // true=白名单 false=黑名单
+    public boolean nbtMatching;      // true=启用NBT匹配 false=忽略NBT
+    
     /**
      * 构造函数（指定UUID）
      */
@@ -27,6 +36,9 @@ public class InputBusData {
         this.networkId = networkId;
         this.containerLocation = containerLocation;
         this.containerType = containerType;
+        this.filterItems = new ArrayList<>();
+        this.whitelistMode = true;
+        this.nbtMatching = false;
     }
     
     /**
@@ -97,5 +109,100 @@ public class InputBusData {
             default:
                 return containerType;
         }
+    }
+    
+    /**
+     * 检查物品是否应该被过滤
+     * @param item 要检查的物品
+     * @return true=应该过滤(不传输) false=不应该过滤(传输)
+     */
+    public boolean shouldFilter(ItemStack item) {
+        if (item == null || item.getType() == Material.AIR) {
+            return true; // 空气物品应该被过滤
+        }
+        
+        // 如果过滤列表为空，不过滤任何物品
+        if (filterItems == null || filterItems.isEmpty()) {
+            return false;
+        }
+        
+        // 检查物品是否在过滤列表中
+        boolean inFilterList = isItemInFilterList(item);
+        
+        // 白名单模式：只在列表中的物品才传输
+        // 黑名单模式：排除列表中的物品
+        if (whitelistMode) {
+            return !inFilterList; // 白名单：不在列表中→过滤
+        } else {
+            return inFilterList;  // 黑名单：在列表中→过滤
+        }
+    }
+    
+    /**
+     * 检查物品是否在过滤列表中
+     */
+    private boolean isItemInFilterList(ItemStack item) {
+        if (filterItems == null || filterItems.isEmpty()) {
+            return false;
+        }
+        
+        for (String serialized : filterItems) {
+            if (serialized == null || serialized.isEmpty()) continue;
+            
+            try {
+                ItemStack filterItem = deserializeItem(serialized);
+                if (filterItem == null) continue;
+                
+                if (nbtMatching) {
+                    // 启用NBT匹配：完全匹配（包括NBT）
+                    if (filterItem.isSimilar(item)) {
+                        return true;
+                    }
+                } else {
+                    // 忽略NBT匹配：只比较材质和数据值
+                    if (filterItem.getType() == item.getType() && 
+                        filterItem.getDurability() == item.getDurability()) {
+                        return true;
+                    }
+                }
+            } catch (Exception e) {
+                // 忽略反序列化错误
+            }
+        }
+        
+        return false;
+    }
+    
+    /**
+     * 反序列化物品
+     */
+    private ItemStack deserializeItem(String serialized) {
+        if (serialized == null || serialized.isEmpty()) {
+            return null;
+        }
+        
+        try {
+            String[] parts = serialized.split(";", 2);
+            if (parts.length != 2) return null;
+            
+            Material material = Material.valueOf(parts[0]);
+            short durability = Short.parseShort(parts[1]);
+            
+            ItemStack item = new ItemStack(material, 1);
+            item.setDurability(durability);
+            return item;
+        } catch (Exception e) {
+            return null;
+        }
+    }
+    
+    /**
+     * 序列化物品（简化版，只保存材质和耐久度）
+     */
+    public static String serializeItemSimple(ItemStack item) {
+        if (item == null || item.getType() == Material.AIR) {
+            return "";
+        }
+        return item.getType().name() + ";" + item.getDurability();
     }
 }

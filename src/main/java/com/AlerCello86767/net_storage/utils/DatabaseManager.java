@@ -34,6 +34,7 @@ public class DatabaseManager {
             
             createTables();
             migrateDisksTable();
+            migrateInputBusesTable();
             plugin.getLogger().info("数据库初始化成功！");
         } catch (ClassNotFoundException e) {
             plugin.getLogger().severe("H2 数据库驱动未找到: " + e.getMessage());
@@ -133,6 +134,9 @@ public class DatabaseManager {
                 network_id VARCHAR(36),
                 container_location VARCHAR(128) NOT NULL,
                 container_type VARCHAR(64),
+                filter_items TEXT,
+                whitelist_mode BOOLEAN DEFAULT TRUE,
+                nbt_matching BOOLEAN DEFAULT FALSE,
                 created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
             )
         """;
@@ -169,6 +173,36 @@ public class DatabaseManager {
             plugin.getLogger().info("磁盘表迁移完成");
         } catch (SQLException e) {
             plugin.getLogger().warning("磁盘表迁移失败: " + e.getMessage());
+        }
+    }
+    
+    /**
+     * 迁移输入总线表，添加过滤相关列
+     */
+    public void migrateInputBusesTable() {
+        if (connection == null) return;
+        
+        try (Statement stmt = connection.createStatement()) {
+            // 添加过滤相关列
+            try {
+                stmt.execute("ALTER TABLE input_buses ADD COLUMN IF NOT EXISTS filter_items TEXT");
+            } catch (SQLException e) {
+                // 列可能已存在，忽略
+            }
+            try {
+                stmt.execute("ALTER TABLE input_buses ADD COLUMN IF NOT EXISTS whitelist_mode BOOLEAN DEFAULT TRUE");
+            } catch (SQLException e) {
+                // 列可能已存在，忽略
+            }
+            try {
+                stmt.execute("ALTER TABLE input_buses ADD COLUMN IF NOT EXISTS nbt_matching BOOLEAN DEFAULT FALSE");
+            } catch (SQLException e) {
+                // 列可能已存在，忽略
+            }
+            
+            plugin.getLogger().info("输入总线表迁移完成");
+        } catch (SQLException e) {
+            plugin.getLogger().warning("输入总线表迁移失败: " + e.getMessage());
         }
     }
 
@@ -818,9 +852,9 @@ public class DatabaseManager {
         
         try {
             String sql = """
-                MERGE INTO input_buses (bus_uuid, location, network_id, container_location, container_type)
+                MERGE INTO input_buses (bus_uuid, location, network_id, container_location, container_type, filter_items, whitelist_mode, nbt_matching)
                 KEY (location)
-                VALUES (?, ?, ?, ?, ?)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?)
             """;
             
             try (PreparedStatement stmt = connection.prepareStatement(sql)) {
@@ -833,6 +867,16 @@ public class DatabaseManager {
                 }
                 stmt.setString(4, data.containerLocation);
                 stmt.setString(5, data.containerType);
+                
+                // 序列化过滤物品列表
+                String filterItemsStr = "";
+                if (data.filterItems != null && !data.filterItems.isEmpty()) {
+                    filterItemsStr = String.join("|", data.filterItems);
+                }
+                stmt.setString(6, filterItemsStr);
+                stmt.setBoolean(7, data.whitelistMode);
+                stmt.setBoolean(8, data.nbtMatching);
+                
                 stmt.executeUpdate();
             }
         } catch (SQLException e) {
@@ -880,6 +924,16 @@ public class DatabaseManager {
                         com.AlerCello86767.net_storage.controller.InputBusData data = 
                                 new com.AlerCello86767.net_storage.controller.InputBusData(
                                         busUuid, location, networkId, containerLocation, containerType);
+                        
+                        // 加载过滤设置
+                        String filterItemsStr = rs.getString("filter_items");
+                        if (filterItemsStr != null && !filterItemsStr.isEmpty()) {
+                            java.util.List<String> filterItems = java.util.Arrays.asList(filterItemsStr.split("\\|"));
+                            data.filterItems = new java.util.ArrayList<>(filterItems);
+                        }
+                        data.whitelistMode = rs.getBoolean("whitelist_mode");
+                        data.nbtMatching = rs.getBoolean("nbt_matching");
+                        
                         dataList.add(data);
                     } catch (Exception e) {
                         plugin.getLogger().warning("加载输入总线失败，跳过: " + e.getMessage());
