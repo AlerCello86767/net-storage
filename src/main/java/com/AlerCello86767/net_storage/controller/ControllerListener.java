@@ -333,6 +333,7 @@ public class ControllerListener implements Listener {
         // 检查是否是输入总线
         if (plugin.getControllerManager().isInputBus(location)) {
             handleInputBusBreak(player, location, event);
+            return;
         }
     }
 

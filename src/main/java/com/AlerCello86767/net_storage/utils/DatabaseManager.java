@@ -868,10 +868,17 @@ public class DatabaseManager {
                 stmt.setString(4, data.containerLocation);
                 stmt.setString(5, data.containerType);
                 
-                // 序列化过滤物品列表
-                String filterItemsStr = "";
+                // 序列化过滤物品列表（JSON数组+Base64）
+                String filterItemsStr = "[]";
                 if (data.filterItems != null && !data.filterItems.isEmpty()) {
-                    filterItemsStr = String.join("|", data.filterItems);
+                    StringBuilder sb = new StringBuilder("[");
+                    for (int i = 0; i < data.filterItems.size(); i++) {
+                        if (i > 0) sb.append(",");
+                        String itemBase64 = data.filterItems.get(i);
+                        sb.append("\"").append(itemBase64 != null ? itemBase64.replace("\"", "\\\"") : "").append("\"");
+                    }
+                    sb.append("]");
+                    filterItemsStr = sb.toString();
                 }
                 stmt.setString(6, filterItemsStr);
                 stmt.setBoolean(7, data.whitelistMode);
@@ -925,11 +932,31 @@ public class DatabaseManager {
                                 new com.AlerCello86767.net_storage.controller.InputBusData(
                                         busUuid, location, networkId, containerLocation, containerType);
                         
-                        // 加载过滤设置
+                        // 加载过滤设置（JSON数组+Base64）
                         String filterItemsStr = rs.getString("filter_items");
-                        if (filterItemsStr != null && !filterItemsStr.isEmpty()) {
-                            java.util.List<String> filterItems = java.util.Arrays.asList(filterItemsStr.split("\\|"));
-                            data.filterItems = new java.util.ArrayList<>(filterItems);
+                        if (filterItemsStr != null && !filterItemsStr.isEmpty() && !"[]".equals(filterItemsStr)) {
+                            java.util.List<String> filterItems = new java.util.ArrayList<>();
+                            // 简单的 JSON 数组解析
+                            try {
+                                String content = filterItemsStr.trim();
+                                if (content.startsWith("[") && content.endsWith("]")) {
+                                    content = content.substring(1, content.length() - 1);
+                                    String[] items = content.split(",");
+                                    for (String item : items) {
+                                        item = item.trim();
+                                        if (item.startsWith("\"") && item.endsWith("\"")) {
+                                            item = item.substring(1, item.length() - 1);
+                                            item = item.replace("\\\"", "\"");
+                                        }
+                                        filterItems.add(item);
+                                    }
+                                }
+                            } catch (Exception e) {
+                                // 兼容旧格式（|分隔）
+                                java.util.List<String> oldFormatItems = java.util.Arrays.asList(filterItemsStr.split("\\|"));
+                                filterItems.addAll(oldFormatItems);
+                            }
+                            data.filterItems = filterItems;
                         }
                         data.whitelistMode = rs.getBoolean("whitelist_mode");
                         data.nbtMatching = rs.getBoolean("nbt_matching");

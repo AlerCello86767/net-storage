@@ -135,19 +135,34 @@ public class ControllerManager {
 
     public void loadAllControllers() {
         plugin.getLogger().info("开始加载所有控制器...");
+        
+        // 清空旧数据，避免 /reload 时数据重复
+        controllers.clear();
+        networkControllers.clear();
+        
         List<ControllerData> controllerDataList = plugin.getDatabaseManager().loadAllControllersFromDB();
         
+        int loaded = 0;
+        int skipped = 0;
         for (ControllerData data : controllerDataList) {
+            if (data.networkId == null) {
+                plugin.getLogger().warning("跳过无效控制器（无网络ID）: " + data.location);
+                skipped++;
+                continue;
+            }
+            
             Location location = stringToLocation(data.location);
             if (location != null) {
                 controllers.put(data.location, data.networkId);
                 networkControllers.computeIfAbsent(data.networkId, k -> new HashSet<>()).add(data.location);
+                loaded++;
             } else {
                 plugin.getLogger().warning("无法解析控制器位置: " + data.location);
+                skipped++;
             }
         }
         
-        plugin.getLogger().info("控制器加载完成，共 " + controllers.size() + " 个控制器");
+        plugin.getLogger().info("控制器加载完成，已加载 " + loaded + " 个，跳过 " + skipped + " 个");
     }
 
     public void saveAllControllers() {

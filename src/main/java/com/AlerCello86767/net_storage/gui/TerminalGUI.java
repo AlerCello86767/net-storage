@@ -16,21 +16,18 @@ import org.bukkit.block.Block;
 import org.bukkit.block.BlockState;
 import org.bukkit.entity.Player;
 import org.bukkit.event.inventory.InventoryClickEvent;
+import org.bukkit.event.inventory.InventoryDragEvent;
 import org.bukkit.inventory.ItemStack;
+import org.bukkit.inventory.meta.ItemMeta;
 import org.bukkit.scheduler.BukkitTask;
 
-import java.util.ArrayList;
-import java.util.HashMap;
-import java.util.List;
-import java.util.Map;
-import java.util.UUID;
+import java.util.*;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.atomic.AtomicBoolean;
 
 /**
  * 终端 GUI
  * 提供统一的物品存取界面
- * 所有数据通过 DiskManager 获取，不使用独立缓存
  */
 public class TerminalGUI extends BaseGUI {
 
@@ -39,10 +36,10 @@ public class TerminalGUI extends BaseGUI {
     private final DiskManager diskManager;
     private final UUID networkId;
     private final Location blockLocation;
-    
+
     private int currentPage = 1;
     private int totalPages = 1;
-    
+
     // 槽位定义
     private static final int INFO_SLOT = 0;
     private static final int ITEM_AREA_START = 9;
@@ -51,74 +48,53 @@ public class TerminalGUI extends BaseGUI {
     private static final int PREV_PAGE_SLOT = 45;
     private static final int PAGE_INFO_SLOT = 49;
     private static final int NEXT_PAGE_SLOT = 53;
-    
-    // 网络的所有物品（聚合自所有磁盘）
-    // 使用 Map<diskUuid#serializedKey, DiskItem> 便于快速查找
+
+    // 物品数据
     private Map<String, DiskItem> networkItemsMap = new ConcurrentHashMap<>();
-    
-    // 用于显示的物品列表
     private List<DiskItem> displayItems = new ArrayList<>();
-    
-    // 网络中的磁盘 UUID 列表（用于快速访问）
     private List<UUID> networkDisks = new ArrayList<>();
-    
-    // 更新锁，防止刷新时点击导致问题
+
     private final AtomicBoolean isUpdating = new AtomicBoolean(false);
-    
-    // 定时刷新任务
     private BukkitTask refreshTask;
 
+    // ==================== 构造方法 ====================
+
     public TerminalGUI(Player player, Net_storage plugin, TerminalData terminalData, Location blockLocation) {
-        // super() 必须是第一条语句，在参数中计算标题
         super(player, 54, buildTitle(plugin, terminalData.networkId));
-        
+
         this.plugin = plugin;
         this.terminalData = terminalData;
         this.diskManager = plugin.getDiskManager();
         this.networkId = terminalData.networkId;
         this.blockLocation = blockLocation;
-        
-        // 加载网络物品
+
         refreshNetworkData();
-        
-        // 计算总页数
         totalPages = Math.max(1, (int) Math.ceil(displayItems.size() / (double) ITEMS_PER_PAGE));
-        
+
         initialize();
-        
-        // 启动定时刷新任务（每1.5秒 = 30 ticks）
         startRefreshTask();
     }
-    
-    /**
-     * 启动定时刷新任务
-     */
+
+    // ==================== 生命周期 ====================
+
     private void startRefreshTask() {
         refreshTask = Bukkit.getScheduler().runTaskTimer(plugin, () -> {
-            // 只在玩家打开界面时刷新
             if (player.isOnline() && player.getOpenInventory().getTitle().equals(getTitle())) {
                 refreshNetworkData();
                 update();
             } else {
-                // 玩家已关闭界面，停止刷新任务
                 stopRefreshTask();
             }
-        }, 30L, 30L); // 30 ticks = 1.5秒
+        }, 30L, 30L);
     }
-    
-    /**
-     * 停止定时刷新任务
-     */
+
     private void stopRefreshTask() {
         if (refreshTask != null) {
             refreshTask.cancel();
             refreshTask = null;
         }
     }
-    
-    /**
-     * 构建终端标题
-     */
+
     private static String buildTitle(Net_storage plugin, UUID networkId) {
         String networkName = "未连接";
         if (networkId != null && plugin != null) {
@@ -130,38 +106,36 @@ public class TerminalGUI extends BaseGUI {
         return ChatColor.translateAlternateColorCodes('&', "&a终端 - " + networkName);
     }
 
-    /**
-     * 刷新网络数据 - 从 DiskManager 获取最新数据
-     */
-    public void refreshNetworkData() {
-        // 标记开始更新
+    @Override
+    public void close() {
+        stopRefreshTask();
+        super.close();
+    }
+
+    // ==================== 数据刷新 ====================
+
+    public synchronized void refreshNetworkData() {
         isUpdating.set(true);
-        
+
         try {
             networkItemsMap.clear();
             displayItems.clear();
             networkDisks.clear();
-            
-            if (networkId == null) {
-                return;
-            }
-            
-            // 获取所有连接到该网络的磁盘操纵器
+
+            if (networkId == null) return;
+
+            // 获取所有磁盘操纵器
             List<DiskManipulatorData> manipulators = plugin.getControllerManager().getDiskManipulatorsByNetwork(networkId);
-            
+
             for (DiskManipulatorData manipulator : manipulators) {
                 if (manipulator.slots == null) continue;
-                
+
                 for (UUID diskUuid : manipulator.slots) {
                     if (diskUuid == null) continue;
-                    
-                    // 记录磁盘 UUID
+
                     networkDisks.add(diskUuid);
-                    
-                    // 从 DiskManager 获取磁盘数据（使用缓存）
                     List<DiskItem> diskItems = diskManager.getDiskData(diskUuid);
-                    
-                    // 添加物品到网络列表
+
                     for (DiskItem item : diskItems) {
                         item.setDiskUuid(diskUuid);
                         String key = diskUuid.toString() + "#" + item.getSerializedItem();
@@ -169,39 +143,37 @@ public class TerminalGUI extends BaseGUI {
                     }
                 }
             }
-            
+
             // 加载外部存储总线的容器物品
             List<ExternalStorageBusData> externalBuses = plugin.getControllerManager().getExternalStorageBusesByNetwork(networkId);
             for (ExternalStorageBusData busData : externalBuses) {
                 try {
                     Location containerLoc = busData.getContainerLocation();
                     if (containerLoc == null) continue;
-                    
+
                     Block containerBlock = containerLoc.getBlock();
                     if (containerBlock == null) continue;
-                    
+
                     BlockState state = containerBlock.getState();
                     if (state == null) continue;
-                    
-                    // 安全检查：确保是容器
+
                     if (!(state instanceof org.bukkit.block.Container)) {
                         plugin.getLogger().warning("外部存储总线绑定的容器无效: " + busData.busUuid);
                         continue;
                     }
-                    
+
                     org.bukkit.block.Container container = (org.bukkit.block.Container) state;
                     org.bukkit.inventory.Inventory inventory = container.getInventory();
                     if (inventory == null) continue;
-                    
+
                     for (int i = 0; i < inventory.getSize(); i++) {
                         ItemStack item = inventory.getItem(i);
                         if (item == null || item.getType() == Material.AIR) continue;
-                        
-                        // 创建 DiskItem 表示容器物品
+
                         DiskItem diskItem = DiskItem.fromItemStack(item, item.getAmount());
                         diskItem.setExternalBus(busData.busUuid.toString());
                         diskItem.setSlotIndex(i);
-                        
+
                         String key = "external#" + busData.busUuid + "#" + i;
                         networkItemsMap.put(key, diskItem);
                     }
@@ -209,15 +181,16 @@ public class TerminalGUI extends BaseGUI {
                     plugin.getLogger().warning("加载外部存储总线数据失败: " + busData.busUuid + " - " + e.getMessage());
                 }
             }
-            
-            // 更新显示列表
+
+            // 按 Material 名称排序
             displayItems = new ArrayList<>(networkItemsMap.values());
-            
+            displayItems.sort(Comparator.comparingInt(item -> item.getMaterial().ordinal()));
         } finally {
-            // 标记更新完成
             isUpdating.set(false);
         }
     }
+
+    // ==================== GUI 初始化 ====================
 
     @Override
     public void initialize() {
@@ -228,14 +201,10 @@ public class TerminalGUI extends BaseGUI {
         setupBottomRowFiller();
     }
 
-    /**
-     * 设置指南针信息槽位
-     */
     private void setupInfoSlot() {
-        // 获取网络信息
         String networkName = "未连接";
         String networkIdShort = "无";
-        
+
         if (networkId != null) {
             StorageNetwork network = plugin.getNetworkManager().getNetwork(networkId);
             if (network != null) {
@@ -243,33 +212,26 @@ public class TerminalGUI extends BaseGUI {
                 networkIdShort = networkId.toString().substring(0, 8) + "...";
             }
         }
-        
-        // 计算磁盘操纵器数量和磁盘数量
+
         int manipulatorCount = plugin.getControllerManager().getDiskManipulatorsByNetwork(networkId).size();
         int diskCount = networkDisks.size();
-        
-        // 计算外部存储总线数量
         int externalBusCount = plugin.getControllerManager().getExternalStorageBusesByNetwork(networkId).size();
-        
-        // 计算磁盘容量（根据磁盘类型）
+
         int diskCapacity = 0;
         for (UUID diskUuid : networkDisks) {
             diskCapacity += diskManager.getDiskCapacity(diskUuid);
         }
         int diskUsedSpace = calculateUsedSpace();
         int diskRemaining = diskCapacity - diskUsedSpace;
-        
-        // 计算外部容器容量
+
         int containerRemaining = calculateExternalContainerRemainingSpace();
-        
-        // 总容量和总剩余
         int totalCapacity = diskCapacity;
         int totalRemaining = diskRemaining + containerRemaining;
         int totalUsed = diskUsedSpace;
-        
+
         int percentage = totalCapacity > 0 ? (totalUsed * 100) / totalCapacity : 0;
         String progressBar = createProgressBar(percentage);
-        
+
         ItemStack compass = new ItemBuilder(Material.COMPASS)
                 .setName(ChatColor.GOLD + "网络存储信息")
                 .setLore(
@@ -290,16 +252,13 @@ public class TerminalGUI extends BaseGUI {
                         progressBar,
                         ChatColor.GRAY + "物品种类: " + ChatColor.WHITE + displayItems.size(),
                         "",
-                        ChatColor.YELLOW + "点击物品取出 | 点击背包物品存入"
+                        ChatColor.YELLOW + "点击物品取出 | 点击空位存入 | Shift+点击背包存入"
                 )
                 .build();
-        
+
         setItem(INFO_SLOT, compass);
     }
 
-    /**
-     * 计算已用空间 - 从所有磁盘累加
-     */
     private int calculateUsedSpace() {
         int total = 0;
         for (UUID diskUuid : networkDisks) {
@@ -309,219 +268,181 @@ public class TerminalGUI extends BaseGUI {
         return total;
     }
 
-    /**
-     * 创建进度条
-     */
     private String createProgressBar(int percentage) {
         int filled = (percentage * 20) / 100;
         int remain = 20 - filled;
-        
-        ChatColor fillColor;
-        if (percentage < 80) {
-            fillColor = ChatColor.BLUE;
-        } else if (percentage < 95) {
-            fillColor = ChatColor.YELLOW;
-        } else {
-            fillColor = ChatColor.RED;
-        }
-        
+
+        ChatColor fillColor = percentage < 80 ? ChatColor.BLUE :
+                percentage < 95 ? ChatColor.YELLOW :
+                ChatColor.RED;
+
         StringBuilder bar = new StringBuilder();
-        for (int i = 0; i < filled; i++) {
-            bar.append(fillColor).append("|");
-        }
-        for (int i = 0; i < remain; i++) {
-            bar.append(ChatColor.GRAY).append("|");
-        }
-        
+        for (int i = 0; i < filled; i++) bar.append(fillColor).append("|");
+        for (int i = 0; i < remain; i++) bar.append(ChatColor.GRAY).append("|");
         return bar.toString();
     }
 
-    /**
-     * 设置第一排填充物
-     */
     private void setupTopRowFiller() {
         ItemStack glassPane = new ItemBuilder(Material.LIGHT_GRAY_STAINED_GLASS_PANE)
                 .setName(" ")
                 .build();
-        
-        for (int i = 1; i <= 8; i++) {
-            setItem(i, glassPane);
-        }
+        for (int i = 1; i <= 8; i++) setItem(i, glassPane);
     }
 
-    /**
-     * 设置物品列表
-     */
+    // ==================== 物品列表 ====================
+
     private void setupItems() {
         if (displayItems.isEmpty()) {
             ItemStack emptyPlaceholder = new ItemBuilder(Material.BARRIER)
                     .setName(ChatColor.GRAY + "网络存储为空")
                     .setLore(ChatColor.DARK_GRAY + "请先在磁盘操纵器中插入磁盘")
                     .build();
-            
             for (int i = ITEM_AREA_START; i <= ITEM_AREA_END; i++) {
                 setItem(i, emptyPlaceholder);
             }
             return;
         }
-        
+
         int startIndex = (currentPage - 1) * ITEMS_PER_PAGE;
         int endIndex = Math.min(startIndex + ITEMS_PER_PAGE, displayItems.size());
-        
+
         int slot = ITEM_AREA_START;
         for (int i = startIndex; i < endIndex && slot <= ITEM_AREA_END; i++) {
             DiskItem diskItem = displayItems.get(i);
-            
+
             String displayName = diskItem.getDisplayName();
             if (displayName == null) {
                 displayName = ChatColor.WHITE + diskItem.getMaterial().name();
             } else {
                 displayName = ChatColor.WHITE + displayName;
             }
-            
-            ItemStack displayItem = new ItemBuilder(diskItem.getMaterial())
-                    .setName(displayName)
-                    .setLore(
-                            ChatColor.GRAY + "数量: " + ChatColor.WHITE + diskItem.getAmount() + " 个",
-                            "",
-                            ChatColor.YELLOW + "左键/右键点击取出 1 个",
-                            ChatColor.YELLOW + "Shift+左键/右键取出全部"
-                    )
-                    .build();
-            
-            setItem(slot, displayItem);
-            
-            // 使用唯一键来标识物品，而不是索引
-            String itemKey;
-            if (diskItem.isExternalItem()) {
-                // 外部容器物品使用 busUuid 作为键
-                itemKey = "external#" + diskItem.getExternalBus() + "#" + diskItem.getSlotIndex();
-            } else {
-                // 磁盘物品使用 diskUuid 作为键
-                itemKey = diskItem.getDiskUuid().toString() + "#" + diskItem.getSerializedItem();
+
+// ✅ 使用完整 ItemStack（包含 NBT）来显示
+            ItemStack displayItem = diskItem.toItemStack();
+            ItemMeta meta = displayItem.getItemMeta();
+            if (meta != null) {
+                List<String> lore = meta.getLore() != null ? meta.getLore() : new ArrayList<>();
+                lore.add("");
+                lore.add(ChatColor.GRAY + "数量: " + ChatColor.WHITE + diskItem.getAmount() + " 个");
+                lore.add("");
+                lore.add(ChatColor.YELLOW + "左键/右键点击取出 1 个");
+                lore.add(ChatColor.YELLOW + "Shift+点击取出 64 个");
+                meta.setLore(lore);
+                displayItem.setItemMeta(meta);
             }
-            
+            setItem(slot, displayItem);
+
+            setItem(slot, displayItem);
+
+            String itemKey = diskItem.isExternalItem()
+                    ? "external#" + diskItem.getExternalBus() + "#" + diskItem.getSlotIndex()
+                    : diskItem.getDiskUuid().toString() + "#" + diskItem.getSerializedItem();
+
             final String key = itemKey;
             setClickAction(slot, (p, item, slotNum, clickType) -> {
                 handleItemClick(key, clickType);
             });
-            
+
             slot++;
         }
-        
-        // 填充空位
+
+        // 填充空位（这些空位也支持点击存入）
         ItemStack emptyPane = new ItemBuilder(Material.LIGHT_GRAY_STAINED_GLASS_PANE)
-                .setName(" ")
+                .setName(ChatColor.GRAY + "点击放入物品")
+                .setLore(ChatColor.DARK_GRAY + "将物品拖拽或点击空位存入")
                 .build();
-        
         while (slot <= ITEM_AREA_END) {
             setItem(slot, emptyPane);
+            // ✅ 空槽位点击 = 存入鼠标上的物品
+            final int finalSlot = slot;
+            setClickAction(slot, (p, item, slotNum, clickType) -> {
+                handleEmptySlotClick();
+            });
             slot++;
         }
     }
 
-    /**
-     * 处理物品点击 - 取出物品
-     */
+    // ==================== 取出物品 ====================
+
     private void handleItemClick(String itemKey, ClickType clickType) {
         if (isUpdating.get()) {
             player.sendMessage(ChatColor.RED + "界面正在刷新，请稍后...");
             return;
         }
-        
+
         DiskItem diskItem = networkItemsMap.get(itemKey);
         if (diskItem == null) {
             player.sendMessage(ChatColor.RED + "物品数据异常，请重新打开终端！");
             return;
         }
-        
-        // 检查是否是外部容器物品
+
         if (diskItem.isExternalItem()) {
             handleExternalItemClick(diskItem, clickType);
             return;
         }
-        
+
         UUID diskUuid = diskItem.getDiskUuid();
         if (diskUuid == null) {
             player.sendMessage(ChatColor.RED + "物品数据异常！");
             return;
         }
-        
-        // 计算取出数量
-        int removeAmount = (clickType == ClickType.SHIFT_LEFT_CLICK || clickType == ClickType.SHIFT_RIGHT_CLICK) 
-                ? diskItem.getAmount() : 1;
-        
-        // 检查背包空间
+
+        // Shift+点击取出 64 个，普通点击取出 1 个
+        int removeAmount = (clickType == ClickType.SHIFT_LEFT_CLICK || clickType == ClickType.SHIFT_RIGHT_CLICK)
+                ? Math.min(64, diskItem.getAmount()) : 1;
+
         Material material = diskItem.getMaterial();
-        int maxStackSize = material.getMaxStackSize();
         int playerSpace = calculatePlayerSpace(player, material);
-        
         int canTake = Math.min(removeAmount, playerSpace);
-        
+
         if (canTake <= 0) {
             player.sendMessage(ChatColor.RED + "背包已满！");
             return;
         }
-        
+
         // 获取磁盘数据并移除物品
         List<DiskItem> diskData = diskManager.getDiskData(diskUuid);
-        
-        boolean found = false;
-        int remainingInDisk = 0;
+
         DiskItem targetItem = null;
         for (DiskItem di : diskData) {
             if (di.getSerializedItem().equals(diskItem.getSerializedItem())) {
-                remainingInDisk = di.getAmount();
                 targetItem = di;
-                found = true;
                 break;
             }
         }
-        
-        if (!found || targetItem == null) {
+
+        if (targetItem == null) {
             player.sendMessage(ChatColor.RED + "物品数据异常，请重新打开终端！");
             return;
         }
-        
-        // 更新物品数量
-        int newAmount = remainingInDisk - canTake;
-        targetItem.setAmount(newAmount);
-        
-        // 如果数量为0或负数，移除该物品条目
+
+        int newAmount = targetItem.getAmount() - canTake;
         if (newAmount <= 0) {
             diskData.remove(targetItem);
+        } else {
+            targetItem.setAmount(newAmount);
         }
-        
-        // 保存磁盘数据
+
         diskManager.saveDiskData(diskUuid, diskData);
-        
-        // 使用 DiskItem 的完整数据创建物品（包括 NBT）
+
         ItemStack giveItem = diskItem.toItemStack();
         giveItem.setAmount(canTake);
         player.getInventory().addItem(giveItem);
-        
+
         String itemName = diskItem.getDisplayName() != null ? diskItem.getDisplayName() : material.name();
-        String msg = canTake < removeAmount 
-                ? ChatColor.YELLOW + "背包空间不足！已取出 " + ChatColor.WHITE + canTake + ChatColor.YELLOW + " 个 " + itemName
-                : ChatColor.GREEN + "已取出 " + ChatColor.WHITE + canTake + ChatColor.GREEN + " 个 " + itemName;
-        player.sendMessage(msg);
-        
-        // 刷新界面
-        refreshNetworkData();
-        totalPages = Math.max(1, (int) Math.ceil(displayItems.size() / (double) ITEMS_PER_PAGE));
-        if (currentPage > totalPages) {
-            currentPage = totalPages;
+        if (canTake < removeAmount) {
+            player.sendMessage(ChatColor.YELLOW + "背包空间不足！已取出 " + ChatColor.WHITE + canTake + ChatColor.YELLOW + " 个 " + itemName);
+        } else {
+            player.sendMessage(ChatColor.GREEN + "已取出 " + ChatColor.WHITE + canTake + ChatColor.GREEN + " 个 " + itemName);
         }
-        update();
+
+        refreshAndUpdate();
     }
-    
-    /**
-     * 处理外部容器物品取出
-     */
+
     private void handleExternalItemClick(DiskItem diskItem, ClickType clickType) {
         String busUuidStr = diskItem.getExternalBus();
         int slotIndex = diskItem.getSlotIndex();
-        
+
         UUID busUuid;
         try {
             busUuid = UUID.fromString(busUuidStr);
@@ -529,84 +450,69 @@ public class TerminalGUI extends BaseGUI {
             player.sendMessage(ChatColor.RED + "外部存储总线UUID异常！");
             return;
         }
-        
+
         ExternalStorageBusData busData = plugin.getControllerManager().getExternalStorageBusByUuid(busUuid);
-        
         if (busData == null) {
             player.sendMessage(ChatColor.RED + "外部存储总线数据异常！");
             return;
         }
-        
+
         Location containerLoc = busData.getContainerLocation();
         if (containerLoc == null) {
             player.sendMessage(ChatColor.RED + "容器位置异常！");
             return;
         }
-        
+
         Block containerBlock = containerLoc.getBlock();
         if (containerBlock == null || !(containerBlock.getState() instanceof org.bukkit.block.Container)) {
             player.sendMessage(ChatColor.RED + "容器不存在或已被破坏！");
             return;
         }
-        
+
         org.bukkit.block.Container container = (org.bukkit.block.Container) containerBlock.getState();
         org.bukkit.inventory.Inventory inventory = container.getInventory();
-        
+
         ItemStack containerItem = inventory.getItem(slotIndex);
         if (containerItem == null || containerItem.getType() == Material.AIR) {
             player.sendMessage(ChatColor.RED + "容器物品已被移除！");
-            refreshNetworkData();
-            update();
+            refreshAndUpdate();
             return;
         }
-        
-        // 计算取出数量
-        int removeAmount = (clickType == ClickType.SHIFT_LEFT_CLICK || clickType == ClickType.SHIFT_RIGHT_CLICK) 
-                ? containerItem.getAmount() : 1;
-        
-        // 检查背包空间
+
+        // Shift+点击取出 64 个
+        int removeAmount = (clickType == ClickType.SHIFT_LEFT_CLICK || clickType == ClickType.SHIFT_RIGHT_CLICK)
+                ? Math.min(64, containerItem.getAmount()) : 1;
+
         Material material = containerItem.getType();
         int playerSpace = calculatePlayerSpace(player, material);
-        
         int canTake = Math.min(removeAmount, playerSpace);
-        
+
         if (canTake <= 0) {
             player.sendMessage(ChatColor.RED + "背包已满！");
             return;
         }
-        
-        // 从容器中取出物品
+
         ItemStack giveItem = containerItem.clone();
         giveItem.setAmount(canTake);
-        
+
         containerItem.setAmount(containerItem.getAmount() - canTake);
         if (containerItem.getAmount() <= 0) {
             inventory.setItem(slotIndex, null);
         }
-        
-        // 给玩家物品
+
         player.getInventory().addItem(giveItem);
-        
-        String itemName = containerItem.hasItemMeta() && containerItem.getItemMeta().hasDisplayName() 
+
+        String itemName = containerItem.hasItemMeta() && containerItem.getItemMeta().hasDisplayName()
                 ? containerItem.getItemMeta().getDisplayName() : material.name();
         player.sendMessage(ChatColor.GREEN + "已从容器取出 " + ChatColor.WHITE + canTake + ChatColor.GREEN + " 个 " + itemName);
-        
-        // 刷新界面
-        refreshNetworkData();
-        totalPages = Math.max(1, (int) Math.ceil(displayItems.size() / (double) ITEMS_PER_PAGE));
-        if (currentPage > totalPages) {
-            currentPage = totalPages;
-        }
-        update();
+
+        refreshAndUpdate();
     }
 
-    /**
-     * 计算玩家背包中特定物品的剩余空间
-     */
     private int calculatePlayerSpace(Player player, Material material) {
         int space = 0;
         int maxStackSize = material.getMaxStackSize();
-        
+
         for (ItemStack item : player.getInventory().getContents()) {
             if (item == null || item.getType() == Material.AIR) {
                 space += maxStackSize;
@@ -614,190 +520,99 @@ public class TerminalGUI extends BaseGUI {
                 space += maxStackSize - item.getAmount();
             }
         }
-        
         return space;
     }
 
-    /**
-     * 设置翻页控制
-     */
-    private void setupPagination() {
-        ItemStack prevPageItem;
-        if (currentPage > 1) {
-            prevPageItem = new ItemBuilder(Material.ARROW)
-                    .setName(ChatColor.YELLOW + "上一页")
-                    .setLore(ChatColor.GRAY + "当前页: " + currentPage + "/" + totalPages)
-                    .build();
-            
-            setClickAction(PREV_PAGE_SLOT, (p, item, slot, clickType) -> {
-                if (currentPage > 1) {
-                    currentPage--;
-                    update();
-                }
-            });
-        } else {
-            prevPageItem = new ItemBuilder(Material.GRAY_STAINED_GLASS_PANE)
-                    .setName(ChatColor.DARK_GRAY + "已是第一页")
-                    .build();
-        }
-        setItem(PREV_PAGE_SLOT, prevPageItem);
-        
-        ItemStack pageInfoItem = new ItemBuilder(Material.BELL)
-                .setName(ChatColor.GOLD + "页面信息")
-                .setLore(
-                        ChatColor.GRAY + "当前页: " + ChatColor.WHITE + currentPage,
-                        ChatColor.GRAY + "总页数: " + ChatColor.WHITE + totalPages
-                )
-                .build();
-        setItem(PAGE_INFO_SLOT, pageInfoItem);
-        
-        ItemStack nextPageItem;
-        if (currentPage < totalPages) {
-            nextPageItem = new ItemBuilder(Material.ARROW)
-                    .setName(ChatColor.YELLOW + "下一页")
-                    .setLore(ChatColor.GRAY + "当前页: " + currentPage + "/" + totalPages)
-                    .build();
-            
-            setClickAction(NEXT_PAGE_SLOT, (p, item, slot, clickType) -> {
-                if (currentPage < totalPages) {
-                    currentPage++;
-                    update();
-                }
-            });
-        } else {
-            nextPageItem = new ItemBuilder(Material.GRAY_STAINED_GLASS_PANE)
-                    .setName(ChatColor.DARK_GRAY + "已是最后一页")
-                    .build();
-        }
-        setItem(NEXT_PAGE_SLOT, nextPageItem);
-    }
+    // ==================== 存入物品 ====================
 
     /**
-     * 设置底部填充
+     * 处理空槽位点击 - 存入鼠标上的物品
      */
-    private void setupBottomRowFiller() {
-        ItemStack glassPane = new ItemBuilder(Material.LIGHT_GRAY_STAINED_GLASS_PANE)
-                .setName(" ")
-                .build();
-        
-        for (int i = 45; i <= 53; i++) {
-            if (i != PREV_PAGE_SLOT && i != PAGE_INFO_SLOT && i != NEXT_PAGE_SLOT) {
-                setItem(i, glassPane);
-            }
+    private void handleEmptySlotClick() {
+        if (isUpdating.get()) {
+            player.sendMessage(ChatColor.RED + "界面正在刷新，请稍后...");
+            return;
         }
-    }
 
-    /**
-     * 获取网络总剩余空间 - 从所有磁盘累加
-     */
-    public int getTotalRemainingSpace() {
-        // 磁盘容量（根据磁盘类型）
-        int diskCapacity = 0;
-        for (UUID diskUuid : networkDisks) {
-            diskCapacity += diskManager.getDiskCapacity(diskUuid);
+        ItemStack cursorItem = player.getItemOnCursor();
+        if (cursorItem == null || cursorItem.getType() == Material.AIR) {
+            player.sendMessage(ChatColor.YELLOW + "请先拿起要存入的物品！");
+            return;
         }
-        int diskUsedSpace = calculateUsedSpace();
-        int diskRemaining = diskCapacity - diskUsedSpace;
-        
-        // 外部容器容量
-        int containerRemaining = calculateExternalContainerRemainingSpace();
-        
-        return diskRemaining + containerRemaining;
-    }
-    
-    /**
-     * 计算外部容器剩余空间
-     */
-    private int calculateExternalContainerRemainingSpace() {
-        if (networkId == null) {
-            return 0;
-        }
-        
-        int remaining = 0;
-        
-        List<ExternalStorageBusData> externalBuses = plugin.getControllerManager().getExternalStorageBusesByNetwork(networkId);
-        
-        for (ExternalStorageBusData busData : externalBuses) {
-            Location containerLoc = busData.getContainerLocation();
-            if (containerLoc == null) continue;
-            
-            Block containerBlock = containerLoc.getBlock();
-            if (containerBlock == null || !(containerBlock.getState() instanceof org.bukkit.block.Container)) continue;
-            
-            org.bukkit.block.Container container = (org.bukkit.block.Container) containerBlock.getState();
-            org.bukkit.inventory.Inventory inventory = container.getInventory();
-            
-            for (int i = 0; i < inventory.getSize(); i++) {
-                ItemStack slotItem = inventory.getItem(i);
-                if (slotItem == null || slotItem.getType() == Material.AIR) {
-                    // 空槽位，按最大堆叠数计算
-                    remaining += 64; // 默认最大堆叠数
-                } else if (slotItem.getAmount() < slotItem.getMaxStackSize()) {
-                    // 有物品但未满，计算剩余空间
-                    remaining += slotItem.getMaxStackSize() - slotItem.getAmount();
-                }
-            }
-        }
-        
-        return remaining;
-    }
 
-    /**
-     * 检查物品是否能存入
-     */
-    public boolean canStoreItem(ItemStack item, int amount) {
-        return getTotalRemainingSpace() >= amount;
-    }
-
-    /**
-     * 处理玩家背包点击 - 存入物品
-     * @param item 玩家手中的物品
-     * @param amount 要存入的数量
-     * @return 实际存入的数量
-     */
-    public int storeItem(ItemStack item, int amount) {
-        if (item == null || item.getType() == Material.AIR) {
-            return 0;
-        }
-        
         // 检查空间
         int remaining = getTotalRemainingSpace();
         if (remaining <= 0) {
-            return 0;
+            player.sendMessage(ChatColor.RED + "网络存储空间不足！");
+            return;
         }
-        
-        // 限制存入数量
-        int toStore = Math.min(amount, remaining);
-        
-        // 智能分布存入
-        return distributeItemToDisks(item, toStore);
+
+        int amount = Math.min(cursorItem.getAmount(), remaining);
+        if (amount <= 0) {
+            player.sendMessage(ChatColor.RED + "空间不足！");
+            return;
+        }
+
+        // 执行存入
+        isUpdating.set(true);
+        try {
+            int stored = storeItem(cursorItem.clone(), amount);
+
+            if (stored > 0) {
+                // 从鼠标移除物品
+                int remainingInCursor = cursorItem.getAmount() - stored;
+                if (remainingInCursor <= 0) {
+                    player.setItemOnCursor(null);
+                } else {
+                    cursorItem.setAmount(remainingInCursor);
+                    player.setItemOnCursor(cursorItem);
+                }
+
+                String itemName = cursorItem.hasItemMeta() && cursorItem.getItemMeta().hasDisplayName()
+                        ? cursorItem.getItemMeta().getDisplayName()
+                        : cursorItem.getType().name();
+
+                player.sendMessage(ChatColor.GREEN + "已存入 " + ChatColor.WHITE + stored + ChatColor.GREEN + " 个 " + itemName);
+                refreshAndUpdate();
+            } else {
+                player.sendMessage(ChatColor.RED + "存入失败！");
+            }
+        } finally {
+            isUpdating.set(false);
+        }
     }
 
     /**
-     * 分布存储物品到磁盘 - 直接修改 DiskManager 缓存
-     * 优先堆叠相同物品，然后分散存储
+     * 将物品存入网络存储
      */
-    private int distributeItemToDisks(ItemStack item, int amount) {
-        if (amount <= 0) {
+    private int storeItem(ItemStack item, int amount) {
+        if (item == null || item.getType() == Material.AIR || amount <= 0) {
             return 0;
         }
-        
+
+        int remaining = getTotalRemainingSpace();
+        if (remaining <= 0) return 0;
+
+        int toStore = Math.min(amount, remaining);
+        return distributeItemToDisks(item, toStore);
+    }
+
+    private int distributeItemToDisks(ItemStack item, int amount) {
+        if (amount <= 0) return 0;
+
         int stored = 0;
-        
-        // 用于记录哪些磁盘被修改了
         Map<UUID, List<DiskItem>> modifiedDisks = new HashMap<>();
-        
+
         // 第一步：优先堆叠到已有相同物品的磁盘
         for (UUID diskUuid : networkDisks) {
             if (amount - stored <= 0) break;
-            
+
             List<DiskItem> diskItems = diskManager.getDiskData(diskUuid);
             int usedSpace = diskManager.getTotalItems(diskItems);
             int remainingSpace = diskManager.getDiskCapacity(diskUuid) - usedSpace;
-            
+
             if (remainingSpace <= 0) continue;
-            
-            // 查找该磁盘是否有相同物品
+
             for (DiskItem diskItem : diskItems) {
                 if (diskItem.matchesItemStack(item)) {
                     int canAdd = Math.min(remainingSpace, amount - stored);
@@ -806,21 +621,21 @@ public class TerminalGUI extends BaseGUI {
                         stored += canAdd;
                         modifiedDisks.put(diskUuid, diskItems);
                     }
-                    break; // 每个磁盘只堆叠一次
+                    break;
                 }
             }
         }
-        
-        // 第二步：分散存储剩余物品到有空位的磁盘
+
+        // 第二步：分散存储到有空位的磁盘
         for (UUID diskUuid : networkDisks) {
             if (amount - stored <= 0) break;
-            
+
             List<DiskItem> diskItems = diskManager.getDiskData(diskUuid);
             int usedSpace = diskManager.getTotalItems(diskItems);
             int remainingSpace = diskManager.getDiskCapacity(diskUuid) - usedSpace;
-            
+
             if (remainingSpace <= 0) continue;
-            
+
             int canAdd = Math.min(remainingSpace, amount - stored);
             if (canAdd > 0) {
                 DiskItem newItem = DiskItem.fromItemStack(item, canAdd);
@@ -830,48 +645,42 @@ public class TerminalGUI extends BaseGUI {
                 modifiedDisks.put(diskUuid, diskItems);
             }
         }
-        
-        // 第三步：保存所有修改过的磁盘
+
+        // 保存修改过的磁盘
         for (Map.Entry<UUID, List<DiskItem>> entry : modifiedDisks.entrySet()) {
             diskManager.saveDiskData(entry.getKey(), entry.getValue());
         }
-        
-        // 第四步：如果还有剩余物品，存入外部容器
+
+        // 第三步：存入外部容器
         if (amount - stored > 0) {
             stored += distributeItemToExternalContainers(item, amount - stored);
         }
-        
+
         return stored;
     }
-    
-    /**
-     * 将物品存入外部容器
-     */
+
     private int distributeItemToExternalContainers(ItemStack item, int amount) {
-        if (amount <= 0 || networkId == null) {
-            return 0;
-        }
-        
+        if (amount <= 0 || networkId == null) return 0;
+
         int stored = 0;
-        
         List<ExternalStorageBusData> externalBuses = plugin.getControllerManager().getExternalStorageBusesByNetwork(networkId);
-        
+
         for (ExternalStorageBusData busData : externalBuses) {
             if (amount - stored <= 0) break;
-            
+
             Location containerLoc = busData.getContainerLocation();
             if (containerLoc == null) continue;
-            
+
             Block containerBlock = containerLoc.getBlock();
             if (containerBlock == null || !(containerBlock.getState() instanceof org.bukkit.block.Container)) continue;
-            
+
             org.bukkit.block.Container container = (org.bukkit.block.Container) containerBlock.getState();
             org.bukkit.inventory.Inventory inventory = container.getInventory();
-            
-            // 第一步：优先堆叠到已有相同物品的槽位
+
+            // 堆叠到已有物品
             for (int i = 0; i < inventory.getSize(); i++) {
                 if (amount - stored <= 0) break;
-                
+
                 ItemStack slotItem = inventory.getItem(i);
                 if (slotItem != null && slotItem.isSimilar(item) && slotItem.getAmount() < slotItem.getMaxStackSize()) {
                     int canAdd = Math.min(slotItem.getMaxStackSize() - slotItem.getAmount(), amount - stored);
@@ -879,11 +688,11 @@ public class TerminalGUI extends BaseGUI {
                     stored += canAdd;
                 }
             }
-            
-            // 第二步：存入空槽位
+
+            // 存入空槽位
             for (int i = 0; i < inventory.getSize(); i++) {
                 if (amount - stored <= 0) break;
-                
+
                 ItemStack slotItem = inventory.getItem(i);
                 if (slotItem == null || slotItem.getType() == Material.AIR) {
                     int canAdd = Math.min(item.getMaxStackSize(), amount - stored);
@@ -894,105 +703,267 @@ public class TerminalGUI extends BaseGUI {
                 }
             }
         }
-        
+
         return stored;
     }
 
-    /**
-     * 处理玩家背包区域的点击事件
-     */
+    public int getTotalRemainingSpace() {
+        int diskCapacity = 0;
+        for (UUID diskUuid : networkDisks) {
+            diskCapacity += diskManager.getDiskCapacity(diskUuid);
+        }
+        int diskUsedSpace = calculateUsedSpace();
+        int diskRemaining = diskCapacity - diskUsedSpace;
+        int containerRemaining = calculateExternalContainerRemainingSpace();
+        return diskRemaining + containerRemaining;
+    }
+
+    private int calculateExternalContainerRemainingSpace() {
+        if (networkId == null) return 0;
+
+        int remaining = 0;
+        List<ExternalStorageBusData> externalBuses = plugin.getControllerManager().getExternalStorageBusesByNetwork(networkId);
+
+        for (ExternalStorageBusData busData : externalBuses) {
+            Location containerLoc = busData.getContainerLocation();
+            if (containerLoc == null) continue;
+
+            Block containerBlock = containerLoc.getBlock();
+            if (containerBlock == null || !(containerBlock.getState() instanceof org.bukkit.block.Container)) continue;
+
+            org.bukkit.block.Container container = (org.bukkit.block.Container) containerBlock.getState();
+            org.bukkit.inventory.Inventory inventory = container.getInventory();
+
+            for (int i = 0; i < inventory.getSize(); i++) {
+                ItemStack slotItem = inventory.getItem(i);
+                if (slotItem == null || slotItem.getType() == Material.AIR) {
+                    remaining += 64;
+                } else if (slotItem.getAmount() < slotItem.getMaxStackSize()) {
+                    remaining += slotItem.getMaxStackSize() - slotItem.getAmount();
+                }
+            }
+        }
+        return remaining;
+    }
+
+    private void refreshAndUpdate() {
+        refreshNetworkData();
+        totalPages = Math.max(1, (int) Math.ceil(displayItems.size() / (double) ITEMS_PER_PAGE));
+        if (currentPage > totalPages) currentPage = totalPages;
+        update();
+    }
+
+    // ==================== 翻页控制 ====================
+
+    private void setupPagination() {
+        ItemStack prevPageItem;
+        if (currentPage > 1) {
+            prevPageItem = new ItemBuilder(Material.ARROW)
+                    .setName(ChatColor.YELLOW + "上一页")
+                    .setLore(ChatColor.GRAY + "当前页: " + currentPage + "/" + totalPages)
+                    .build();
+            setClickAction(PREV_PAGE_SLOT, (p, item, slot, clickType) -> {
+                if (currentPage > 1) { currentPage--; update(); }
+            });
+        } else {
+            prevPageItem = new ItemBuilder(Material.GRAY_STAINED_GLASS_PANE)
+                    .setName(ChatColor.DARK_GRAY + "已是第一页")
+                    .build();
+        }
+        setItem(PREV_PAGE_SLOT, prevPageItem);
+
+        ItemStack pageInfoItem = new ItemBuilder(Material.BELL)
+                .setName(ChatColor.GOLD + "页面信息")
+                .setLore(
+                        ChatColor.GRAY + "当前页: " + ChatColor.WHITE + currentPage,
+                        ChatColor.GRAY + "总页数: " + ChatColor.WHITE + totalPages
+                )
+                .build();
+        setItem(PAGE_INFO_SLOT, pageInfoItem);
+
+        ItemStack nextPageItem;
+        if (currentPage < totalPages) {
+            nextPageItem = new ItemBuilder(Material.ARROW)
+                    .setName(ChatColor.YELLOW + "下一页")
+                    .setLore(ChatColor.GRAY + "当前页: " + currentPage + "/" + totalPages)
+                    .build();
+            setClickAction(NEXT_PAGE_SLOT, (p, item, slot, clickType) -> {
+                if (currentPage < totalPages) { currentPage++; update(); }
+            });
+        } else {
+            nextPageItem = new ItemBuilder(Material.GRAY_STAINED_GLASS_PANE)
+                    .setName(ChatColor.DARK_GRAY + "已是最后一页")
+                    .build();
+        }
+        setItem(NEXT_PAGE_SLOT, nextPageItem);
+    }
+
+    private void setupBottomRowFiller() {
+        ItemStack glassPane = new ItemBuilder(Material.LIGHT_GRAY_STAINED_GLASS_PANE)
+                .setName(" ")
+                .build();
+        for (int i = 45; i <= 53; i++) {
+            if (i != PREV_PAGE_SLOT && i != PAGE_INFO_SLOT && i != NEXT_PAGE_SLOT) {
+                setItem(i, glassPane);
+            }
+        }
+    }
+
+    // ==================== 拖拽处理 ====================
+
     @Override
-    protected void handlePlayerInventoryClick(InventoryClickEvent event, int slot, ItemStack item, ClickType clickType) {
-        // 检查是否正在更新
-        if (isUpdating.get()) {
+    public void handleDrag(InventoryDragEvent event) {
+        Set<Integer> guiSlots = new HashSet<>();
+        for (int rawSlot : event.getRawSlots()) {
+            if (rawSlot < inventory.getSize()) {
+                guiSlots.add(rawSlot);
+            }
+        }
+
+        // 只在背包内拖拽 → 放行
+        if (guiSlots.isEmpty()) {
+            event.setCancelled(false);
+            return;
+        }
+
+        // 检查是否拖拽到物品显示区域（槽位 9-44）
+        boolean hasItemAreaSlot = false;
+        for (int slot : guiSlots) {
+            if (slot >= ITEM_AREA_START && slot <= ITEM_AREA_END) {
+                hasItemAreaSlot = true;
+                break;
+            }
+        }
+
+        if (!hasItemAreaSlot) {
             event.setCancelled(true);
-            player.sendMessage(ChatColor.RED + "界面正在刷新，请稍后...");
             return;
         }
-        
-        // 只处理玩家背包区域
-        if (slot < inventory.getSize()) {
+
+        ItemStack dragged = event.getOldCursor();
+        if (dragged == null || dragged.getType() == Material.AIR) {
+            event.setCancelled(false);
             return;
         }
-        
-        // 检查是否是空物品
-        if (item == null || item.getType() == Material.AIR) {
-            event.setCancelled(true);
-            return;
-        }
-        
-        // 计算存入数量
-        int amount = (clickType == ClickType.SHIFT_LEFT_CLICK || clickType == ClickType.SHIFT_RIGHT_CLICK) 
-                ? item.getAmount() : 1;
-        
-        // 检查空间
+
+        // ✅ 拖拽到物品区域 = 存入物品
+        event.setCancelled(true);
+
         int remaining = getTotalRemainingSpace();
         if (remaining <= 0) {
-            player.sendMessage(ChatColor.RED + "网络存储空间不足！剩余: 0");
-            event.setCancelled(true);
+            player.sendMessage(ChatColor.RED + "网络存储空间不足！");
             return;
         }
-        
-        if (amount > remaining) {
-            player.sendMessage(ChatColor.YELLOW + "空间不足！网络剩余: " + remaining + "，尝试存入 " + remaining + " 个");
-            amount = remaining;
+
+        int amount = Math.min(dragged.getAmount(), remaining);
+        if (amount <= 0) {
+            player.sendMessage(ChatColor.RED + "空间不足！");
+            return;
         }
-        
-        // 标记开始存入
+
         isUpdating.set(true);
-        
         try {
-            // 执行存入
-            int stored = storeItem(item.clone(), amount);
-            
+            int stored = storeItem(dragged.clone(), amount);
+
             if (stored > 0) {
-                // 从玩家背包移除物品
-                int remainingInHand = item.getAmount() - stored;
-                if (remainingInHand <= 0) {
-                    event.setCurrentItem(null);
+                int remainingInCursor = dragged.getAmount() - stored;
+                if (remainingInCursor <= 0) {
+                    event.setCursor(null);
                 } else {
-                    item.setAmount(remainingInHand);
-                    event.setCurrentItem(item);
+                    ItemStack newCursor = dragged.clone();
+                    newCursor.setAmount(remainingInCursor);
+                    event.setCursor(newCursor);
                 }
-                
-                String itemName = item.hasItemMeta() && item.getItemMeta().hasDisplayName() 
-                        ? item.getItemMeta().getDisplayName() 
-                        : item.getType().name();
-                
-                if (stored < amount) {
-                    player.sendMessage(ChatColor.YELLOW + "空间不足！已存入 " + ChatColor.WHITE + stored + 
-                            ChatColor.YELLOW + " 个 " + itemName);
-                } else {
-                    player.sendMessage(ChatColor.GREEN + "已存入 " + ChatColor.WHITE + stored + 
-                            ChatColor.GREEN + " 个 " + itemName);
-                }
-                
-                // 刷新界面
-                refreshNetworkData();
-                totalPages = Math.max(1, (int) Math.ceil(displayItems.size() / (double) ITEMS_PER_PAGE));
-                if (currentPage > totalPages) {
-                    currentPage = totalPages;
-                }
-                update();
+
+                String itemName = dragged.hasItemMeta() && dragged.getItemMeta().hasDisplayName()
+                        ? dragged.getItemMeta().getDisplayName()
+                        : dragged.getType().name();
+
+                player.sendMessage(ChatColor.GREEN + "已存入 " + ChatColor.WHITE + stored +
+                        ChatColor.GREEN + " 个 " + itemName);
+
+                refreshAndUpdate();
             } else {
                 player.sendMessage(ChatColor.RED + "存入失败！");
             }
         } finally {
-            // 标记存入完成
             isUpdating.set(false);
         }
-        
-        event.setCancelled(true);
     }
 
-    /**
-     * 更新界面
-     */
-    public void update() {
-        if (isUpdating.get()) {
+    // ==================== 背包点击处理（Shift+点击存入） ====================
+
+    @Override
+    protected void handlePlayerInventoryClick(InventoryClickEvent event, int slot, ItemStack item, ClickType clickType) {
+        // GUI 区域的点击由 handleClick 处理
+        if (slot < inventory.getSize()) {
+            event.setCancelled(true);
             return;
         }
-        
+
+        // 背包区域点击
+        if (item == null || item.getType() == Material.AIR) {
+            event.setCancelled(false);
+            return;
+        }
+
+        // ✅ Shift+点击背包物品 → 存入全部
+        if (clickType == ClickType.SHIFT_LEFT_CLICK || clickType == ClickType.SHIFT_RIGHT_CLICK) {
+            event.setCancelled(true);
+
+            // 检查空间
+            int remaining = getTotalRemainingSpace();
+            if (remaining <= 0) {
+                player.sendMessage(ChatColor.RED + "网络存储空间不足！");
+                return;
+            }
+
+            // ✅ 存入全部（整组）
+            int amount = item.getAmount();
+            if (amount > remaining) {
+                player.sendMessage(ChatColor.YELLOW + "空间不足！剩余: " + remaining + "，已存入 " + remaining + " 个");
+                amount = remaining;
+            }
+
+            isUpdating.set(true);
+            try {
+                int stored = storeItem(item.clone(), amount);
+
+                if (stored > 0) {
+                    // 从背包移除物品
+                    if (item.getAmount() <= stored) {
+                        event.setCurrentItem(null);
+                    } else {
+                        item.setAmount(item.getAmount() - stored);
+                        event.setCurrentItem(item);
+                    }
+
+                    String itemName = item.hasItemMeta() && item.getItemMeta().hasDisplayName()
+                            ? item.getItemMeta().getDisplayName()
+                            : item.getType().name();
+
+                    player.sendMessage(ChatColor.GREEN + "已存入 " + ChatColor.WHITE + stored +
+                            ChatColor.GREEN + " 个 " + itemName);
+
+                    refreshAndUpdate();
+                } else {
+                    player.sendMessage(ChatColor.RED + "存入失败！");
+                }
+            } finally {
+                isUpdating.set(false);
+            }
+            return;
+        }
+
+        // ✅ 普通点击（左键/右键）→ 让玩家正常操作背包
+        event.setCancelled(false);
+    }
+    // ==================== 更新 ====================
+
+    @Override
+    public synchronized void update() {
+        if (isUpdating.get() || !isOpen()) return;
+
         isUpdating.set(true);
         try {
             inventory.clear();
@@ -1002,14 +973,5 @@ public class TerminalGUI extends BaseGUI {
         } finally {
             isUpdating.set(false);
         }
-    }
-    
-    /**
-     * 关闭界面
-     */
-    @Override
-    public void close() {
-        stopRefreshTask();
-        super.close();
     }
 }

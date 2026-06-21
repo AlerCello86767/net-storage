@@ -45,23 +45,29 @@ public class InputBusGUI extends BaseGUI {
         if (busData != null) {
             this.whitelistMode = busData.whitelistMode;
             this.nbtMatching = busData.nbtMatching;
-            // 反序列化过滤物品
+            // 反序列化过滤物品（保留槽位索引，Base64格式）
             if (busData.filterItems != null) {
-                for (String serialized : busData.filterItems) {
+                for (int i = 0; i < busData.filterItems.size() && i < 9; i++) {
+                    String serialized = busData.filterItems.get(i);
                     if (serialized != null && !serialized.isEmpty()) {
                         try {
-                            String[] parts = serialized.split(";", 2);
-                            if (parts.length == 2) {
-                                Material material = Material.valueOf(parts[0]);
-                                short durability = Short.parseShort(parts[1]);
-                                ItemStack item = new ItemStack(material, 1);
-                                item.setDurability(durability);
+                            // 使用 Base64 反序列化
+                            ItemStack item = InputBusData.deserializeItemStack(serialized);
+                            if (item != null) {
                                 this.filterItems.add(item);
+                            } else {
+                                this.filterItems.add(null);  // 反序列化失败
                             }
                         } catch (Exception e) {
-                            // 忽略无效的序列化数据
+                            this.filterItems.add(null);  // 无效数据视为空槽位
                         }
+                    } else {
+                        this.filterItems.add(null);  // 空字符串表示空槽位
                     }
+                }
+                // 确保有9个槽位
+                while (this.filterItems.size() < 9) {
+                    this.filterItems.add(null);
                 }
             }
         }
@@ -166,9 +172,9 @@ public class InputBusGUI extends BaseGUI {
 
                 // 检查点击的槽位是否有物品
                 if (item != null && item.getType() != Material.AIR && item.getType() != Material.LIGHT_GRAY_STAINED_GLASS_PANE) {
-                    // 点击已有物品，移除过滤
+                    // 点击已有物品，移除过滤（设为null保持索引）
                     if (idx < filterItems.size() && filterItems.get(idx) != null) {
-                        filterItems.remove(idx);
+                        filterItems.set(idx, null);
                         p.sendMessage(ChatColor.GRAY + "已移除: " + getItemName(item));
                         update();
                     }
@@ -368,11 +374,18 @@ public class InputBusGUI extends BaseGUI {
     protected void onClose() {
         // 保存过滤设置到 InputBusData
         if (busData != null) {
-            // 序列化过滤物品
+            // 序列化过滤物品（保留槽位索引，null用空字符串表示，Base64格式）
             busData.filterItems = new java.util.ArrayList<>();
-            for (ItemStack item : filterItems) {
-                if (item != null && item.getType() != Material.AIR) {
-                    busData.filterItems.add(InputBusData.serializeItemSimple(item));
+            for (int i = 0; i < 9; i++) {  // 过滤列表最多9个槽位
+                if (i < filterItems.size()) {
+                    ItemStack item = filterItems.get(i);
+                    if (item != null && item.getType() != Material.AIR) {
+                        busData.filterItems.add(InputBusData.serializeItemStack(item));
+                    } else {
+                        busData.filterItems.add("");  // 空槽位用空字符串表示
+                    }
+                } else {
+                    busData.filterItems.add("");  // 未使用的槽位
                 }
             }
             busData.whitelistMode = whitelistMode;
@@ -380,7 +393,7 @@ public class InputBusGUI extends BaseGUI {
             
             // 保存到数据库
             plugin.getDatabaseManager().saveInputBusToDB(busData);
-            plugin.getLogger().info("输入总线设置已保存: " + busData.filterItems.size() + " 个过滤物品");
+            plugin.getLogger().info("输入总线设置已保存: " + busData.filterItems.size() + " 个过滤槽位");
         }
     }
 
