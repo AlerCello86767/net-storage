@@ -326,14 +326,25 @@ public class DiskManager {
         }
         
         plugin.getServer().getScheduler().runTaskAsynchronously(plugin, () -> {
-            for (ConcurrentHashMap.Entry<UUID, List<DiskItem>> entry : diskCache.entrySet()) {
-                UUID diskUuid = entry.getKey();
-                String jsonData = gson.toJson(entry.getValue());
-                String diskType = diskTypeCache.getOrDefault(diskUuid, "disk_1k");
-                plugin.getDatabaseManager().saveDiskToDB(diskUuid, jsonData, diskType);
-            }
-            plugin.getLogger().info("批量保存磁盘数据完成，共 " + diskCache.size() + " 个磁盘");
+            saveAllDiskDataSync();
         });
+    }
+    
+    /**
+     * 批量保存磁盘数据（同步，用于插件禁用时）
+     */
+    public void saveAllDiskDataSync() {
+        if (diskCache.isEmpty()) {
+            return;
+        }
+        
+        for (ConcurrentHashMap.Entry<UUID, List<DiskItem>> entry : diskCache.entrySet()) {
+            UUID diskUuid = entry.getKey();
+            String jsonData = gson.toJson(entry.getValue());
+            String diskType = diskTypeCache.getOrDefault(diskUuid, "disk_1k");
+            plugin.getDatabaseManager().saveDiskToDB(diskUuid, jsonData, diskType);
+        }
+        plugin.getLogger().info("批量保存磁盘数据完成，共 " + diskCache.size() + " 个磁盘");
     }
     
     /**

@@ -71,6 +71,9 @@ public class NetworkManager {
         
         // 断开所有输入总线连接
         plugin.getControllerManager().removeInputBusesForNetwork(uuid);
+        
+        // 断开所有输出总线连接
+        plugin.getControllerManager().removeOutputBusesForNetwork(uuid);
 
         // 从内存中移除网络
         networks.remove(uuid);

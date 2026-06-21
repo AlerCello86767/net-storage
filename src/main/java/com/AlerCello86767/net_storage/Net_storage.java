@@ -16,6 +16,7 @@ import com.AlerCello86767.net_storage.gui.listener.GUIListener;
 import com.AlerCello86767.net_storage.listeners.PlayerInteractListener;
 import com.AlerCello86767.net_storage.network.NetworkManager;
 import com.AlerCello86767.net_storage.task.InputBusTask;
+import com.AlerCello86767.net_storage.task.OutputBusTask;
 import com.AlerCello86767.net_storage.utils.ConfigManager;
 import com.AlerCello86767.net_storage.utils.DatabaseManager;
 import org.bukkit.plugin.java.JavaPlugin;
@@ -32,6 +33,7 @@ public final class Net_storage extends JavaPlugin {
     private DiskManager diskManager;
     private BukkitTask autoSaveTask;
     private BukkitTask inputBusTask;
+    private BukkitTask outputBusTask;
 
     @Override
     public void onEnable() {
@@ -53,6 +55,7 @@ public final class Net_storage extends JavaPlugin {
         controllerManager.loadAllTerminals();
         controllerManager.loadAllExternalStorageBuses();
         controllerManager.loadAllInputBuses();
+        controllerManager.loadAllOutputBuses();
 
         diskManager = new DiskManager(this);
 
@@ -74,6 +77,7 @@ public final class Net_storage extends JavaPlugin {
         startAutoSaveTask();
         controllerManager.startActionBarTask();
         startInputBusTask();
+        startOutputBusTask();
 
         getLogger().info("NetStorage 插件已启用！");
         getLogger().info("使用 /network help 查看帮助");
@@ -91,6 +95,10 @@ public final class Net_storage extends JavaPlugin {
             inputBusTask.cancel();
         }
 
+        if (outputBusTask != null) {
+            outputBusTask.cancel();
+        }
+
         if (guiManager != null) {
             guiManager.closeAll();
         }
@@ -100,7 +108,7 @@ public final class Net_storage extends JavaPlugin {
         }
 
         if (diskManager != null) {
-            diskManager.saveAllDiskData();
+            diskManager.saveAllDiskDataSync();  // 使用同步保存，避免插件禁用时注册任务
         }
 
         if (controllerManager != null) {
@@ -111,6 +119,7 @@ public final class Net_storage extends JavaPlugin {
             controllerManager.saveAllTerminals();
             controllerManager.saveAllExternalStorageBuses();
             controllerManager.saveAllInputBuses();
+            controllerManager.saveAllOutputBuses();
         }
 
         if (databaseManager != null) {
@@ -138,6 +147,12 @@ public final class Net_storage extends JavaPlugin {
         // 每9 ticks执行一次输入总线物品提取（约每秒4.5次）
         inputBusTask = getServer().getScheduler().runTaskTimer(this, new InputBusTask(this), 1L, 9L);
         getLogger().info("输入总线定时任务已启动");
+    }
+
+    private void startOutputBusTask() {
+        // 每9 ticks执行一次输出总线物品输出（约每秒4.5次）
+        outputBusTask = getServer().getScheduler().runTaskTimer(this, new OutputBusTask(this), 1L, 9L);
+        getLogger().info("输出总线定时任务已启动");
     }
 
     public static Net_storage getInstance() {

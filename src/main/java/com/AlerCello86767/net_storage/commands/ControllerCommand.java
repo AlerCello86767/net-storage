@@ -65,6 +65,7 @@ public class ControllerCommand implements CommandExecutor {
             case "terminal" -> createTerminalItem();
             case "external_storage_bus" -> createExternalStorageBusItem();
             case "input_bus" -> createInputBusItem();
+            case "output_bus" -> createOutputBusItem();
             case "disk_1k", "disk_4k", "disk_16k" -> plugin.getDiskManager().createDiskItem(type);
             default -> null;
         };
@@ -227,6 +228,27 @@ public class ControllerCommand implements CommandExecutor {
         meta.setLore(lore);
 
         meta.getPersistentDataContainer().set(ITEM_TYPE_KEY, PersistentDataType.STRING, "input_bus");
+
+        item.setItemMeta(meta);
+        return item;
+    }
+    
+    private ItemStack createOutputBusItem() {
+        ItemStack item = new ItemStack(Material.ZOMBIE_HEAD);
+        ItemMeta meta = item.getItemMeta();
+
+        if (meta == null) return item;
+
+        meta.setDisplayName(ChatColor.translateAlternateColorCodes('&', "&d输出总线"));
+
+        List<String> lore = new ArrayList<>();
+        lore.add(ChatColor.GRAY + "自动传输网络物品到容器");
+        lore.add(ChatColor.GRAY + "底座对准容器放置");
+        lore.add(ChatColor.GRAY + "支持: 箱子、漏斗、熔炉等");
+        lore.add(ChatColor.DARK_GRAY + "类型: output_bus");
+        meta.setLore(lore);
+
+        meta.getPersistentDataContainer().set(ITEM_TYPE_KEY, PersistentDataType.STRING, "output_bus");
 
         item.setItemMeta(meta);
         return item;

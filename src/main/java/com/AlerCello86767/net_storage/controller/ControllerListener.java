@@ -5,6 +5,7 @@ import com.AlerCello86767.net_storage.commands.ControllerCommand;
 import com.AlerCello86767.net_storage.gui.ControllerGUI;
 import com.AlerCello86767.net_storage.gui.DiskManipulatorGUI;
 import com.AlerCello86767.net_storage.gui.InputBusGUI;
+import com.AlerCello86767.net_storage.gui.OutputBusGUI;
 import com.AlerCello86767.net_storage.gui.TerminalGUI;
 import com.AlerCello86767.net_storage.network.StorageNetwork;
 import org.bukkit.ChatColor;
@@ -49,6 +50,7 @@ public class ControllerListener implements Listener {
             case "terminal" -> handleTerminalPlace(player, location);
             case "external_storage_bus" -> handleExternalStorageBusPlace(player, location, block, event);
             case "input_bus" -> handleInputBusPlace(player, location, block, event);
+            case "output_bus" -> handleOutputBusPlace(player, location, block, event);
         }
     }
 
@@ -241,6 +243,41 @@ public class ControllerListener implements Listener {
         player.sendMessage(ChatColor.GRAY + "使用连接工具连接到网络");
     }
     
+    private void handleOutputBusPlace(Player player, Location location, Block block, BlockPlaceEvent event) {
+        if (plugin.getControllerManager().isOutputBus(location)) {
+            player.sendMessage(ChatColor.RED + "该位置已有输出总线！");
+            return;
+        }
+        
+        org.bukkit.block.data.Directional directionalData = (org.bukkit.block.data.Directional) block.getBlockData();
+        org.bukkit.block.BlockFace facing = directionalData.getFacing();
+        
+        Block containerBlock = block.getRelative(facing.getOppositeFace());
+        
+        if (!isContainer(containerBlock)) {
+            player.sendMessage(ChatColor.RED + "请将底座对准容器放置！");
+            player.sendMessage(ChatColor.GRAY + "支持的容器: 箱子、陷阱箱、漏斗、熔炉、高炉、烟熏炉、发射器、投掷器、潜影盒");
+            event.setCancelled(true);
+            return;
+        }
+        
+        // 放置时生成新的UUID
+        UUID busUuid = UUID.randomUUID();
+        
+        plugin.getControllerManager().registerOutputBus(
+                busUuid,
+                location, 
+                null, 
+                containerBlock.getLocation(), 
+                containerBlock.getType().name()
+        );
+        
+        player.sendMessage(ChatColor.GREEN + "输出总线放置成功！");
+        player.sendMessage(ChatColor.AQUA + "已绑定容器: " + ChatColor.WHITE + getContainerDisplayName(containerBlock.getType().name()));
+        player.sendMessage(ChatColor.GRAY + "总线UUID: " + ChatColor.DARK_GRAY + busUuid.toString());
+        player.sendMessage(ChatColor.GRAY + "使用连接工具连接到网络");
+    }
+    
     private boolean isContainer(Block block) {
         Material type = block.getType();
         return type == Material.CHEST 
@@ -333,6 +370,12 @@ public class ControllerListener implements Listener {
         // 检查是否是输入总线
         if (plugin.getControllerManager().isInputBus(location)) {
             handleInputBusBreak(player, location, event);
+            return;
+        }
+        
+        // 检查是否是输出总线
+        if (plugin.getControllerManager().isOutputBus(location)) {
+            handleOutputBusBreak(player, location, event);
             return;
         }
     }
@@ -468,6 +511,24 @@ public class ControllerListener implements Listener {
         }
     }
     
+    private void handleOutputBusBreak(Player player, Location location, BlockBreakEvent event) {
+        OutputBusData data = plugin.getControllerManager().getOutputBus(location);
+        plugin.getControllerManager().unregisterOutputBus(location);
+        
+        if (data != null && data.networkId != null) {
+            StorageNetwork network = plugin.getNetworkManager().getNetwork(data.networkId);
+            if (network != null) {
+                player.sendMessage(ChatColor.GREEN + "输出总线已破坏！");
+                player.sendMessage(ChatColor.GRAY + "已从网络 '" + network.getName() + "' 断开连接");
+                player.sendMessage(ChatColor.AQUA + "绑定容器: " + data.getContainerDisplayName());
+            } else {
+                player.sendMessage(ChatColor.GREEN + "输出总线已破坏！");
+            }
+        } else {
+            player.sendMessage(ChatColor.GREEN + "输出总线已破坏！");
+        }
+    }
+    
     private void showInputBusInfo(Player player, Location location) {
         InputBusData data = plugin.getControllerManager().getInputBus(location);
         if (data == null) {
@@ -476,6 +537,32 @@ public class ControllerListener implements Listener {
         }
         
         player.sendMessage(ChatColor.LIGHT_PURPLE + "===== 输入总线信息 =====");
+        player.sendMessage(ChatColor.GRAY + "总线UUID: " + ChatColor.WHITE + data.busUuid);
+        
+        if (data.networkId != null) {
+            StorageNetwork network = plugin.getNetworkManager().getNetwork(data.networkId);
+            if (network != null) {
+                player.sendMessage(ChatColor.GRAY + "网络: " + ChatColor.AQUA + network.getName());
+            } else {
+                player.sendMessage(ChatColor.GRAY + "网络: " + ChatColor.RED + "已断开");
+            }
+        } else {
+            player.sendMessage(ChatColor.GRAY + "网络: " + ChatColor.YELLOW + "未连接");
+        }
+        
+        player.sendMessage(ChatColor.GRAY + "绑定容器: " + ChatColor.WHITE + data.getContainerDisplayName());
+        player.sendMessage(ChatColor.GRAY + "状态: " + (data.networkId != null ? ChatColor.GREEN + "运行中" : ChatColor.YELLOW + "等待连接"));
+        player.sendMessage(ChatColor.DARK_GRAY + "使用连接工具连接到网络");
+    }
+    
+    private void showOutputBusInfo(Player player, Location location) {
+        OutputBusData data = plugin.getControllerManager().getOutputBus(location);
+        if (data == null) {
+            player.sendMessage(ChatColor.RED + "输出总线数据不存在！");
+            return;
+        }
+        
+        player.sendMessage(ChatColor.LIGHT_PURPLE + "===== 输出总线信息 =====");
         player.sendMessage(ChatColor.GRAY + "总线UUID: " + ChatColor.WHITE + data.busUuid);
         
         if (data.networkId != null) {
@@ -570,6 +657,13 @@ public class ControllerListener implements Listener {
                 return;
             }
             
+            // 输出总线右键打开GUI
+            if (plugin.getControllerManager().isOutputBus(location)) {
+                event.setCancelled(true);
+                openOutputBusGUI(player, location);
+                return;
+            }
+            
             // 外部存储总线右键显示信息
             if (plugin.getControllerManager().isExternalStorageBus(location)) {
                 event.setCancelled(true);
@@ -623,6 +717,9 @@ public class ControllerListener implements Listener {
             } else if (plugin.getControllerManager().isInputBus(location)) {
                 event.setCancelled(true);
                 handleConnectToolConnectDevice(player, location, "输入总线");
+            } else if (plugin.getControllerManager().isOutputBus(location)) {
+                event.setCancelled(true);
+                handleConnectToolConnectDevice(player, location, "输出总线");
             }
         }
     }
@@ -679,6 +776,12 @@ public class ControllerListener implements Listener {
             if (data != null) {
                 data.networkId = selectedNetworkId;
                 plugin.getDatabaseManager().saveInputBusToDB(data);
+            }
+        } else if ("输出总线".equals(deviceName)) {
+            OutputBusData data = plugin.getControllerManager().getOutputBus(location);
+            if (data != null) {
+                data.networkId = selectedNetworkId;
+                plugin.getDatabaseManager().saveOutputBusToDB(data);
             }
         }
 
@@ -743,6 +846,19 @@ public class ControllerListener implements Listener {
         }
         
         InputBusGUI gui = new InputBusGUI(player, plugin, busData);
+        plugin.getGuiManager().registerGUI(player, gui);
+        gui.open();
+    }
+    
+    private void openOutputBusGUI(Player player, Location location) {
+        OutputBusData busData = plugin.getControllerManager().getOutputBus(location);
+        
+        if (busData == null) {
+            player.sendMessage(ChatColor.RED + "该输出总线数据不存在！");
+            return;
+        }
+        
+        OutputBusGUI gui = new OutputBusGUI(player, plugin, busData);
         plugin.getGuiManager().registerGUI(player, gui);
         gui.open();
     }

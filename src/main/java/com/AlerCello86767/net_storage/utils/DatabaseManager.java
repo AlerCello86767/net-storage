@@ -141,6 +141,20 @@ public class DatabaseManager {
             )
         """;
 
+        String createOutputBuses = """
+            CREATE TABLE IF NOT EXISTS output_buses (
+                id INTEGER PRIMARY KEY AUTO_INCREMENT,
+                bus_uuid VARCHAR(36) UNIQUE NOT NULL,
+                location VARCHAR(128) NOT NULL UNIQUE,
+                network_id VARCHAR(36),
+                container_location VARCHAR(128) NOT NULL,
+                container_type VARCHAR(64),
+                filter_items TEXT,
+                nbt_matching BOOLEAN DEFAULT FALSE,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            )
+        """;
+
         try (Statement stmt = connection.createStatement()) {
             stmt.execute(createNetworks);
             stmt.execute(createControllers);
@@ -150,6 +164,7 @@ public class DatabaseManager {
             stmt.execute(createTerminals);
             stmt.execute(createExternalStorageBuses);
             stmt.execute(createInputBuses);
+            stmt.execute(createOutputBuses);
         }
     }
     
@@ -345,8 +360,12 @@ public class DatabaseManager {
                 while (rs.next()) {
                     try {
                         String location = rs.getString("location");
-                        UUID networkId = UUID.fromString(rs.getString("network_id"));
-                        UUID ownerUuid = UUID.fromString(rs.getString("owner_uuid"));
+                        String networkIdStr = rs.getString("network_id");
+                        UUID networkId = (networkIdStr != null && !networkIdStr.isEmpty()) ? UUID.fromString(networkIdStr) : null;
+                        String ownerUuidStr = rs.getString("owner_uuid");
+                        UUID ownerUuid = (ownerUuidStr != null && !ownerUuidStr.isEmpty()) ? UUID.fromString(ownerUuidStr) : null;
+
+                        if (location == null || location.isEmpty()) continue;
 
                         controllers.add(new com.AlerCello86767.net_storage.controller.ControllerManager.ControllerData(
                                 location, networkId, ownerUuid));
@@ -449,7 +468,7 @@ public class DatabaseManager {
                     try {
                         String location = rs.getString("location");
                         String networkIdStr = rs.getString("network_id");
-                        UUID networkId = networkIdStr != null ? UUID.fromString(networkIdStr) : null;
+                        UUID networkId = (networkIdStr != null && !networkIdStr.isEmpty()) ? UUID.fromString(networkIdStr) : null;
 
                         devices.add(new com.AlerCello86767.net_storage.controller.ControllerManager.DebugDeviceData(
                                 location, networkId));
@@ -663,7 +682,7 @@ public class DatabaseManager {
                         data.location = rs.getString("location");
                         
                         String networkIdStr = rs.getString("network_id");
-                        data.networkId = networkIdStr != null ? UUID.fromString(networkIdStr) : null;
+                        data.networkId = (networkIdStr != null && !networkIdStr.isEmpty()) ? UUID.fromString(networkIdStr) : null;
                         
                         data.slots = new UUID[8];
                         for (int i = 0; i < 8; i++) {
@@ -745,7 +764,7 @@ public class DatabaseManager {
                         data.location = rs.getString("location");
                         
                         String networkIdStr = rs.getString("network_id");
-                        data.networkId = networkIdStr != null ? UUID.fromString(networkIdStr) : null;
+                        data.networkId = (networkIdStr != null && !networkIdStr.isEmpty()) ? UUID.fromString(networkIdStr) : null;
                         
                         data.createdAt = rs.getTimestamp("created_at");
                         dataList.add(data);
@@ -824,7 +843,7 @@ public class DatabaseManager {
                         
                         String location = rs.getString("location");
                         String networkIdStr = rs.getString("network_id");
-                        UUID networkId = networkIdStr != null ? UUID.fromString(networkIdStr) : null;
+                        UUID networkId = (networkIdStr != null && !networkIdStr.isEmpty()) ? UUID.fromString(networkIdStr) : null;
                         String containerLocation = rs.getString("container_location");
                         String containerType = rs.getString("container_type");
                         
@@ -924,7 +943,7 @@ public class DatabaseManager {
                         
                         String location = rs.getString("location");
                         String networkIdStr = rs.getString("network_id");
-                        UUID networkId = networkIdStr != null ? UUID.fromString(networkIdStr) : null;
+                        UUID networkId = (networkIdStr != null && !networkIdStr.isEmpty()) ? UUID.fromString(networkIdStr) : null;
                         String containerLocation = rs.getString("container_location");
                         String containerType = rs.getString("container_type");
                         
@@ -969,6 +988,133 @@ public class DatabaseManager {
             }
         } catch (SQLException e) {
             plugin.getLogger().severe("加载输入总线列表失败: " + e.getMessage());
+            e.printStackTrace();
+        }
+        
+        return dataList;
+    }
+
+    // ==================== 输出总线 (Output Bus) ====================
+
+    public void saveOutputBusToDB(com.AlerCello86767.net_storage.controller.OutputBusData data) {
+        if (connection == null || data == null) return;
+        
+        try {
+            String sql = """
+                MERGE INTO output_buses (bus_uuid, location, network_id, container_location, container_type, filter_items, nbt_matching)
+                KEY (location)
+                VALUES (?, ?, ?, ?, ?, ?, ?)
+            """;
+            
+            try (PreparedStatement stmt = connection.prepareStatement(sql)) {
+                stmt.setString(1, data.busUuid.toString());
+                stmt.setString(2, data.location);
+                if (data.networkId != null) {
+                    stmt.setString(3, data.networkId.toString());
+                } else {
+                    stmt.setNull(3, Types.VARCHAR);
+                }
+                stmt.setString(4, data.containerLocation);
+                stmt.setString(5, data.containerType);
+                
+                // 序列化过滤物品列表（JSON数组+Base64）
+                String filterItemsStr = "[]";
+                if (data.filterItems != null && !data.filterItems.isEmpty()) {
+                    StringBuilder sb = new StringBuilder("[");
+                    for (int i = 0; i < data.filterItems.size(); i++) {
+                        if (i > 0) sb.append(",");
+                        String itemBase64 = data.filterItems.get(i);
+                        sb.append("\"").append(itemBase64 != null ? itemBase64.replace("\"", "\\\"") : "").append("\"");
+                    }
+                    sb.append("]");
+                    filterItemsStr = sb.toString();
+                }
+                stmt.setString(6, filterItemsStr);
+                stmt.setBoolean(7, data.nbtMatching);
+                
+                stmt.executeUpdate();
+            }
+        } catch (SQLException e) {
+            plugin.getLogger().severe("保存输出总线失败: " + e.getMessage());
+            e.printStackTrace();
+        }
+    }
+    
+    public void deleteOutputBusFromDB(String location) {
+        if (connection == null) return;
+        
+        try {
+            String sql = "DELETE FROM output_buses WHERE location = ?";
+            try (PreparedStatement stmt = connection.prepareStatement(sql)) {
+                stmt.setString(1, location);
+                stmt.executeUpdate();
+            }
+        } catch (SQLException e) {
+            plugin.getLogger().severe("删除输出总线失败: " + e.getMessage());
+            e.printStackTrace();
+        }
+    }
+    
+    public java.util.List<com.AlerCello86767.net_storage.controller.OutputBusData> loadAllOutputBusesFromDB() {
+        java.util.List<com.AlerCello86767.net_storage.controller.OutputBusData> dataList = 
+                new java.util.ArrayList<>();
+        
+        if (connection == null) return dataList;
+        
+        try {
+            String sql = "SELECT * FROM output_buses";
+            try (PreparedStatement stmt = connection.prepareStatement(sql);
+                 ResultSet rs = stmt.executeQuery()) {
+                while (rs.next()) {
+                    try {
+                        String busUuidStr = rs.getString("bus_uuid");
+                        UUID busUuid = busUuidStr != null ? UUID.fromString(busUuidStr) : UUID.randomUUID();
+                        
+                        String location = rs.getString("location");
+                        String networkIdStr = rs.getString("network_id");
+                        UUID networkId = (networkIdStr != null && !networkIdStr.isEmpty()) ? UUID.fromString(networkIdStr) : null;
+                        String containerLocation = rs.getString("container_location");
+                        String containerType = rs.getString("container_type");
+                        
+                        com.AlerCello86767.net_storage.controller.OutputBusData data = 
+                                new com.AlerCello86767.net_storage.controller.OutputBusData(
+                                        busUuid, location, networkId, containerLocation, containerType);
+                        
+                        // 加载过滤设置（JSON数组+Base64）
+                        String filterItemsStr = rs.getString("filter_items");
+                        if (filterItemsStr != null && !filterItemsStr.isEmpty() && !"[]".equals(filterItemsStr)) {
+                            java.util.List<String> filterItems = new java.util.ArrayList<>();
+                            try {
+                                String content = filterItemsStr.trim();
+                                if (content.startsWith("[") && content.endsWith("]")) {
+                                    content = content.substring(1, content.length() - 1);
+                                    String[] items = content.split(",");
+                                    for (String item : items) {
+                                        item = item.trim();
+                                        if (item.startsWith("\"") && item.endsWith("\"")) {
+                                            item = item.substring(1, item.length() - 1);
+                                            item = item.replace("\\\"", "\"");
+                                        }
+                                        filterItems.add(item);
+                                    }
+                                }
+                            } catch (Exception e) {
+                                // 兼容旧格式
+                                java.util.List<String> oldFormatItems = java.util.Arrays.asList(filterItemsStr.split("\\|"));
+                                filterItems.addAll(oldFormatItems);
+                            }
+                            data.filterItems = filterItems;
+                        }
+                        data.nbtMatching = rs.getBoolean("nbt_matching");
+                        
+                        dataList.add(data);
+                    } catch (Exception e) {
+                        plugin.getLogger().warning("加载输出总线失败，跳过: " + e.getMessage());
+                    }
+                }
+            }
+        } catch (SQLException e) {
+            plugin.getLogger().severe("加载输出总线列表失败: " + e.getMessage());
             e.printStackTrace();
         }
         

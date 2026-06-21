@@ -866,4 +866,122 @@ public class ControllerManager {
         }
         plugin.getLogger().info("输入总线保存完成");
     }
+    
+    // ========== 输出总线管理 ==========
+    
+    private final Map<String, OutputBusData> outputBuses = new ConcurrentHashMap<>();
+    
+    /**
+     * 注册输出总线（指定UUID）
+     */
+    public void registerOutputBus(UUID busUuid, Location location, UUID networkId, Location containerLocation, String containerType) {
+        String locStr = locationToString(location);
+        String containerLocStr = locationToString(containerLocation);
+        
+        OutputBusData data = new OutputBusData(busUuid, locStr, networkId, containerLocStr, containerType);
+        outputBuses.put(locStr, data);
+        plugin.getDatabaseManager().saveOutputBusToDB(data);
+    }
+    
+    /**
+     * 注销输出总线
+     */
+    public void unregisterOutputBus(Location location) {
+        String locStr = locationToString(location);
+        outputBuses.remove(locStr);
+        plugin.getDatabaseManager().deleteOutputBusFromDB(locStr);
+    }
+    
+    /**
+     * 获取输出总线数据（通过位置）
+     */
+    public OutputBusData getOutputBus(Location location) {
+        return outputBuses.get(locationToString(location));
+    }
+    
+    /**
+     * 获取输出总线数据（通过UUID）
+     */
+    public OutputBusData getOutputBusByUuid(UUID busUuid) {
+        for (OutputBusData data : outputBuses.values()) {
+            if (data.busUuid.equals(busUuid)) {
+                return data;
+            }
+        }
+        return null;
+    }
+    
+    /**
+     * 检查是否是输出总线
+     */
+    public boolean isOutputBus(Location location) {
+        return outputBuses.containsKey(locationToString(location));
+    }
+    
+    /**
+     * 获取所有连接到指定网络的输出总线
+     */
+    public List<OutputBusData> getOutputBusesByNetwork(UUID networkId) {
+        List<OutputBusData> result = new ArrayList<>();
+        for (OutputBusData data : outputBuses.values()) {
+            if (networkId.equals(data.networkId)) {
+                result.add(data);
+            }
+        }
+        return result;
+    }
+    
+    /**
+     * 获取所有输出总线
+     */
+    public Collection<OutputBusData> getAllOutputBuses() {
+        return outputBuses.values();
+    }
+    
+    /**
+     * 断开输出总线的网络连接
+     */
+    public void disconnectOutputBus(Location location) {
+        String locStr = locationToString(location);
+        OutputBusData data = outputBuses.get(locStr);
+        if (data != null) {
+            data.networkId = null;
+            plugin.getDatabaseManager().saveOutputBusToDB(data);
+        }
+    }
+    
+    /**
+     * 删除网络时断开所有输出总线
+     */
+    public void removeOutputBusesForNetwork(UUID networkId) {
+        for (Map.Entry<String, OutputBusData> entry : outputBuses.entrySet()) {
+            if (networkId.equals(entry.getValue().networkId)) {
+                entry.getValue().networkId = null;
+                plugin.getDatabaseManager().saveOutputBusToDB(entry.getValue());
+            }
+        }
+    }
+    
+    /**
+     * 加载所有输出总线
+     */
+    public void loadAllOutputBuses() {
+        plugin.getLogger().info("开始加载所有输出总线...");
+        List<OutputBusData> dataList = plugin.getDatabaseManager().loadAllOutputBusesFromDB();
+        for (OutputBusData data : dataList) {
+            outputBuses.put(data.location, data);
+        }
+        plugin.getLogger().info("输出总线加载完成，共 " + outputBuses.size() + " 个");
+    }
+    
+    /**
+     * 保存所有输出总线
+     */
+    public void saveAllOutputBuses() {
+        plugin.getLogger().info("保存所有输出总线...");
+        for (OutputBusData data : outputBuses.values()) {
+            plugin.getDatabaseManager().saveOutputBusToDB(data);
+        }
+        plugin.getLogger().info("输出总线保存完成");
+    }
 }

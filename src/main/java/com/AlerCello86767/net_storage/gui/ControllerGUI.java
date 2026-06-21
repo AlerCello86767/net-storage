@@ -5,6 +5,7 @@ import com.AlerCello86767.net_storage.controller.ControllerManager;
 import com.AlerCello86767.net_storage.controller.DiskManipulatorData;
 import com.AlerCello86767.net_storage.controller.ExternalStorageBusData;
 import com.AlerCello86767.net_storage.controller.InputBusData;
+import com.AlerCello86767.net_storage.controller.OutputBusData;
 import com.AlerCello86767.net_storage.controller.TerminalData;
 import com.AlerCello86767.net_storage.network.StorageNetwork;
 import com.AlerCello86767.net_storage.utils.ItemBuilder;
@@ -40,7 +41,8 @@ public class ControllerGUI extends BaseGUI {
         DISK_MANIPULATOR,
         TERMINAL,
         EXTERNAL_STORAGE_BUS,
-        INPUT_BUS
+        INPUT_BUS,
+        OUTPUT_BUS
     }
     
     /**
@@ -190,6 +192,12 @@ public class ControllerGUI extends BaseGUI {
         List<InputBusData> inputBuses = plugin.getControllerManager().getInputBusesByNetwork(network.getNetworkId());
         for (InputBusData bus : inputBuses) {
             devices.add(new DeviceInfo(bus.location, DeviceType.INPUT_BUS, bus));
+        }
+        
+        // 6. 输出总线
+        List<OutputBusData> outputBuses = plugin.getControllerManager().getOutputBusesByNetwork(network.getNetworkId());
+        for (OutputBusData bus : outputBuses) {
+            devices.add(new DeviceInfo(bus.location, DeviceType.OUTPUT_BUS, bus));
         }
 
         // 计算总页数
