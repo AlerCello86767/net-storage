@@ -16,6 +16,8 @@ libraries/
 cache/
 logs/
 world*/
+文件/
+resource-pack/
 *.mca
 *.dat
 

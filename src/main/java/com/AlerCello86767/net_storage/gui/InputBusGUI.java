@@ -150,36 +150,56 @@ public class InputBusGUI extends BaseGUI {
     private void setupFilterList() {
         for (int i = FILTER_START; i < FILTER_END; i++) {
             int index = i - FILTER_START;
-            if (index < filterItems.size()) {
+            if (index < filterItems.size() && filterItems.get(index) != null) {
                 inventory.setItem(i, filterItems.get(index));
+            } else {
+                // 空槽位显示为占位符
+                ItemStack emptySlot = new ItemBuilder(Material.LIGHT_GRAY_STAINED_GLASS_PANE)
+                        .setName(ChatColor.GRAY + "过滤槽 #" + (index + 1))
+                        .setLore(ChatColor.DARK_GRAY + "点击放入物品")
+                        .build();
+                inventory.setItem(i, emptySlot);
             }
+
             setClickAction(i, (p, item, slot, clickType) -> {
-                if (item != null && item.getType() != Material.AIR) {
-                    int idx = slot - FILTER_START;
-                    filterItems.remove(idx);
-                    p.sendMessage(ChatColor.GRAY + "已移除: " + getItemName(item));
-                    update();
+                int idx = slot - FILTER_START;
+
+                // 检查点击的槽位是否有物品
+                if (item != null && item.getType() != Material.AIR && item.getType() != Material.LIGHT_GRAY_STAINED_GLASS_PANE) {
+                    // 点击已有物品，移除过滤
+                    if (idx < filterItems.size() && filterItems.get(idx) != null) {
+                        filterItems.remove(idx);
+                        p.sendMessage(ChatColor.GRAY + "已移除: " + getItemName(item));
+                        update();
+                    }
                 } else {
+                    // 点击空槽位，检查鼠标上的物品
                     ItemStack cursor = p.getItemOnCursor();
                     if (cursor != null && cursor.getType() != Material.AIR) {
-                        int idx = slot - FILTER_START;
-                        if (idx < filterItems.size() && filterItems.get(idx) != null) {
-                            p.sendMessage(ChatColor.YELLOW + "该槽已有物品！");
-                            return;
-                        }
-                        ItemStack toAdd = cursor.clone();
-                        toAdd.setAmount(1);
+                        // 确保 filterItems 列表足够大
                         while (filterItems.size() <= idx) {
                             filterItems.add(null);
                         }
-                        filterItems.set(idx, toAdd);
-                        int newAmount = cursor.getAmount() - 1;
-                        if (newAmount <= 0) {
-                            p.setItemOnCursor(null);
-                        } else {
-                            cursor.setAmount(newAmount);
-                            p.setItemOnCursor(cursor);
+
+                        // 检查是否已存在相同物品（避免重复）
+                        for (ItemStack existing : filterItems) {
+                            if (existing != null && existing.isSimilar(cursor)) {
+                                p.sendMessage(ChatColor.YELLOW + "该物品已在过滤列表中！");
+                                return;
+                            }
                         }
+
+                        // 检查槽位是否已有物品
+                        if (filterItems.get(idx) != null) {
+                            p.sendMessage(ChatColor.YELLOW + "该槽已有物品！");
+                            return;
+                        }
+
+                        // 复制物品到过滤列表
+                        ItemStack toAdd = cursor.clone();
+                        toAdd.setAmount(1);
+                        filterItems.set(idx, toAdd);
+
                         p.sendMessage(ChatColor.GREEN + "已添加物品到过滤列表");
                         update();
                     }
@@ -197,16 +217,71 @@ public class InputBusGUI extends BaseGUI {
 
     // ========== 背包点击处理 ==========
 
+// ========== 背包点击处理 ==========
+
     @Override
     protected void handlePlayerInventoryClick(InventoryClickEvent event, int slot, ItemStack item, ClickType clickType) {
+        // 只处理背包区域的点击
         if (slot < inventory.getSize()) {
             event.setCancelled(true);
             return;
         }
 
+        // 检查是否点击了有效的物品
+        if (item == null || item.getType() == Material.AIR) {
+            event.setCancelled(false);
+            return;
+        }
+
+        // === Shift 点击处理 ===
+        if (clickType == ClickType.SHIFT_LEFT_CLICK || clickType == ClickType.SHIFT_RIGHT_CLICK) {
+            event.setCancelled(true);
+
+            // 检查是否已存在相同物品（避免重复）
+            for (ItemStack existing : filterItems) {
+                if (existing != null && existing.isSimilar(item)) {
+                    player.sendMessage(ChatColor.YELLOW + "该物品已在过滤列表中！");
+                    return;
+                }
+            }
+
+            // 找到第一个空槽位
+            int emptySlot = -1;
+            for (int i = 0; i < 9; i++) { // 过滤槽位共9个
+                if (i >= filterItems.size() || filterItems.get(i) == null) {
+                    emptySlot = i;
+                    break;
+                }
+            }
+
+            if (emptySlot == -1) {
+                player.sendMessage(ChatColor.RED + "过滤列表已满！");
+                return;
+            }
+
+            // 确保列表足够大
+            while (filterItems.size() <= emptySlot) {
+                filterItems.add(null);
+            }
+
+            // ✅ 复制物品到过滤列表（不消耗原物品）
+            // 过滤列表只存储物品的"模板"用于匹配，不消耗实际物品
+            ItemStack toAdd = item.clone();
+            toAdd.setAmount(1);
+            filterItems.set(emptySlot, toAdd);
+
+            // 不移除背包中的物品，只复制一份
+            // 这样玩家可以继续使用这些物品，同时过滤列表保存了物品模板
+
+            player.sendMessage(ChatColor.GREEN + "已添加 " + getItemName(item) + " 到过滤列表！");
+            update();
+            return;
+        }
+
+        // === 普通点击（左键/右键） ===
+        // 允许玩家正常操作背包（取放物品）
         event.setCancelled(false);
     }
-
     // ========== 拖拽处理 ==========
 
     @Override
@@ -257,6 +332,14 @@ public class InputBusGUI extends BaseGUI {
 
         ItemStack toAdd = dragged.clone();
         toAdd.setAmount(1);
+        
+        // 检查是否已存在相同物品（避免重复）
+        for (ItemStack existing : filterItems) {
+            if (existing != null && existing.isSimilar(toAdd)) {
+                player.sendMessage(ChatColor.YELLOW + "该物品已在过滤列表中！");
+                return;
+            }
+        }
 
         int placed = 0;
         for (int slot : filterSlots) {

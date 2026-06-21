@@ -519,8 +519,11 @@ public class ControllerListener implements Listener {
         player.sendMessage(ChatColor.DARK_GRAY + "使用连接工具连接到网络");
     }
 
-    @EventHandler(priority = EventPriority.HIGH)
+    @EventHandler(priority = EventPriority.HIGHEST)
     public void onPlayerInteract(PlayerInteractEvent event) {
+        // 如果事件已被取消，直接返回
+        if (event.isCancelled()) return;
+        
         Player player = event.getPlayer();
         ItemStack handItem = player.getInventory().getItemInMainHand();
         String itemType = ControllerCommand.getItemType(plugin, handItem);
